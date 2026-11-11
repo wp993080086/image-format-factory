@@ -26,6 +26,27 @@ class ExportResult {
   final String? savedPath;
 }
 
+/// 生成导出文件名（PRD 九.4）：`{原名}_{标识}.{ext}`。
+///
+/// JPEG 以质量为标识（`q85`），ICO 无单一宽高故固定 `icon`，
+/// 其余格式以尺寸为标识（`2400x1600`）。
+String buildExportFileName({
+  required String sourceFileName,
+  required ImageFormat format,
+  required int quality,
+  required int width,
+  required int height,
+}) {
+  final dot = sourceFileName.lastIndexOf('.');
+  final base = dot > 0 ? sourceFileName.substring(0, dot) : sourceFileName;
+  final tag = switch (format) {
+    ImageFormat.jpeg => 'q$quality',
+    ImageFormat.ico => 'icon',
+    _ => '${width}x$height',
+  };
+  return '${base}_$tag.${format.extensions.first}';
+}
+
 /// 图片导出服务：封装各端保存差异（PRD 六.2）。
 class ExportService {
   const ExportService();

@@ -2,16 +2,20 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/di/providers.dart';
 import '../../core/error/app_error.dart';
+import '../../core/image/crop_selection.dart';
 import '../../core/image/decode_policy.dart';
+import '../../core/image/encode_service.dart';
+import '../../core/image/image_format.dart';
 import '../../core/image/image_header_probe.dart';
 import '../../core/log/app_logger.dart';
+import '../../services/file/export_service.dart';
 import '../../services/file/import_service.dart';
 import '../editor/editor_state.dart';
 
 /// 功能页状态机控制器（PRD 九.5）。
 ///
 /// 所有功能页（裁切 / 缩放 / 导出）共用同一状态；
-/// 页面间通过 `?tab=` 区分，状态由本控制器持有。
+/// 状态由本控制器持有，页面仅按 [EditorState.stage] 分态渲染。
 class EditorController extends Notifier<EditorState> {
   static const _tag = 'EditorController';
 
@@ -69,6 +73,9 @@ class EditorController extends Notifier<EditorState> {
         stage: EditorStage.editable,
         imported: result,
         decoded: decoded,
+        crop: CropSelection.full(decoded.sourceSize),
+        cropShape: CropShape.rectangle,
+        cropAspect: CropAspect.free,
         clearFailure: true,
       );
     } catch (e, st) {
@@ -79,6 +86,135 @@ class EditorController extends Notifier<EditorState> {
 
   /// 重新选择（错误卡片出口）。
   void reset() => state = const EditorState();
+
+  /// 更新选区：拖拽、手柄、目标尺寸输入共用同一出口。
+  void updateCrop(CropSelection selection) {
+    if (!state.canEdit) return;
+    state = state.copyWith(crop: selection);
+  }
+
+  /// 切换选区形状。
+  ///
+  /// 切入圆形时规范化为 1:1：圆形本质是正方形选区加遮罩，若状态里留着
+  /// 「自由」会让 UI 显示自由比例、实际却锁死 1:1，语义自相矛盾。
+  void updateCropShape(CropShape shape) {
+    final size = state.decoded?.sourceSize;
+    final selection = state.crop;
+    if (!state.canEdit || size == null || selection == null) return;
+    final aspect = shape == CropShape.circle
+        ? CropAspect.square
+        : (state.cropAspect.allowedFor(shape)
+              ? state.cropAspect
+              : CropAspect.square);
+    state = state.copyWith(
+      cropShape: shape,
+      cropAspect: aspect,
+      crop: selection.withAspect(aspect, shape, size),
+    );
+  }
+
+  /// 切换比例预设；非法组合（圆形 + 非 1:1）直接忽略，UI 侧应已置灰。
+  void updateCropAspect(CropAspect aspect) {
+    final size = state.decoded?.sourceSize;
+    final selection = state.crop;
+    if (!state.canEdit || size == null || selection == null) return;
+    if (!aspect.allowedFor(state.cropShape)) return;
+    state = state.copyWith(
+      cropAspect: aspect,
+      crop: selection.withAspect(aspect, state.cropShape, size),
+    );
+  }
+
+  /// 按目标像素尺寸重建选区（PRD 二.3：原图像素，超限钳制，以当前中心为锚点）。
+  void setCropTargetSize(int width, int height) {
+    final size = state.decoded?.sourceSize;
+    final selection = state.crop;
+    if (!state.canEdit || size == null || selection == null) return;
+    state = state.copyWith(
+      crop: selection.withTargetSize(width, height, size, state.cropShape),
+    );
+  }
+
+  /// 选区还原为整图。
+  void resetCrop() {
+    final size = state.decoded?.sourceSize;
+    if (!state.canEdit || size == null) return;
+    state = state.copyWith(crop: CropSelection.full(size));
+  }
+
+  /// 导出：从源字节流二次解码全图 → 编码 → 唤起保存面板写入（PRD 九.3 / 六.2）。
+  ///
+  /// [format] 须在 `EncodeService.exportableFormats` 内；[quality] 仅对 JPEG 生效；
+  /// [icoSizes] 仅对 ICO 生效，为空时取全部可生成尺寸。
+  Future<void> export({
+    required ImageFormat format,
+    required int quality,
+    List<int> icoSizes = const [],
+  }) async {
+    final imported = state.imported;
+    if (state.busy || !state.canEdit || imported == null) return;
+
+    state = state.copyWith(
+      stage: EditorStage.exporting,
+      phase: ProgressPhase.processing,
+      clearFailure: true,
+    );
+    // 全图矩形选区等价于不裁剪，省掉一次整图拷贝（PRD 二章注）
+    final cropArea = state.hasCrop ? state.crop?.toArea() : null;
+    final cropCircle = state.hasCrop && state.cropShape == CropShape.circle;
+    try {
+      final encoded = await ref
+          .read(encodeServiceProvider)
+          .encode(
+            EncodeRequest(
+              sourceBytes: imported.bytes,
+              format: format,
+              quality: quality,
+              icoSizes: icoSizes,
+              crop: cropArea,
+              cropCircle: cropCircle,
+            ),
+          );
+      if (encoded == null) {
+        _fail(AppErrorCode.encodeFailed);
+        return;
+      }
+
+      state = state.copyWith(phase: ProgressPhase.writing);
+      final result = await ref
+          .read(exportServiceProvider)
+          .save(
+            ExportRequest(
+              suggestedName: buildExportFileName(
+                sourceFileName: imported.fileName,
+                format: format,
+                quality: quality,
+                width: encoded.size.width,
+                height: encoded.size.height,
+              ),
+              bytes: encoded.bytes,
+              format: format,
+            ),
+          );
+      if (result == null) {
+        // 用户取消保存面板：回到可编辑态，不算失败
+        state = state.copyWith(stage: EditorStage.editable);
+        return;
+      }
+
+      state = state.copyWith(
+        stage: EditorStage.done,
+        exportedPath: result.savedPath,
+      );
+    } catch (e, st) {
+      // 磁盘满 / 无权限 / 路径非法等平台异常统一降级为 E-EXPORT-006（PRD 十六.2）
+      AppLogger.error('导出失败', name: _tag, error: e, stackTrace: st);
+      _fail(AppErrorCode.encodeFailed, error: e, stackTrace: st);
+    }
+  }
+
+  /// 完成态回到可编辑（PRD 九.5「继续编辑」）。
+  void continueEditing() => state = state.copyWith(stage: EditorStage.editable);
 
   void _fail(
     AppErrorCode code, {

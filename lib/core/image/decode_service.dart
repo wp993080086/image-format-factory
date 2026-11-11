@@ -4,6 +4,8 @@ import 'dart:typed_data';
 import 'package:image/image.dart' as img;
 
 import 'decode_policy.dart';
+import 'format_detector.dart';
+import 'ico_frame_select.dart';
 import 'image_header_probe.dart';
 
 /// 解码结果：预览图 PNG 字节 + 原图尺寸。
@@ -51,8 +53,13 @@ DecodeResult? _decodeAndResize(TransferableTypedData transferable) {
   final decoded = img.decodeImage(bytes);
   if (decoded == null) return null;
 
+  // ICO 是多尺寸容器，取像素数最大的那一帧（PRD 4.1）；其余格式保持原样
+  final bitmap = ImageFormatDetector.isIco(bytes)
+      ? largestIcoFrame(decoded)
+      : decoded;
+
   // 校正 EXIF 方向（PRD 八.6：方向信息在解码时烘焙，不写入导出）
-  final oriented = img.bakeOrientation(decoded);
+  final oriented = img.bakeOrientation(bitmap);
   final sourceSize = ImageDimensions(oriented.width, oriented.height);
 
   final target = DecodePolicy.previewSize(sourceSize);

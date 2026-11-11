@@ -53,6 +53,12 @@ class ImageFormatDetector {
     return null;
   }
 
+  /// 是否为 ICO 容器。
+  ///
+  /// 供解码路径判定是否需要「多尺寸取最大帧」（PRD 4.1）；只读 4 字节魔数，
+  /// 不做任何扫描。
+  static bool isIco(Uint8List bytes) => _matchIco(bytes);
+
   // --- 各格式判定 ---
 
   static bool _matchJpeg(Uint8List b) =>

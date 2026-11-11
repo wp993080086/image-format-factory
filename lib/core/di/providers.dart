@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../image/decode_service.dart';
+import '../image/encode_service.dart';
 import '../platform/app_platform.dart';
 import '../platform/capabilities.dart';
 import '../../services/file/export_service.dart';
@@ -17,6 +18,11 @@ final exportServiceProvider = Provider<ExportService>(
 /// 图片解码服务（Isolate 内解码 + 生成预览图）。
 final decodeServiceProvider = Provider<DecodeService>(
   (ref) => const DecodeService(),
+);
+
+/// 图片编码服务（Isolate 内二次解码全图 + 编码），供导出使用。
+final encodeServiceProvider = Provider<EncodeService>(
+  (ref) => const EncodeService(),
 );
 
 // 说明：importServiceProvider 定义在 `services/file/import_service.dart`，

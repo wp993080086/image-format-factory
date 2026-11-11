@@ -4,13 +4,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pixel_forge/core/di/providers.dart';
 import 'package:pixel_forge/core/error/app_error.dart';
+import 'package:pixel_forge/core/image/crop_selection.dart';
 import 'package:pixel_forge/core/image/decode_service.dart';
+import 'package:pixel_forge/core/image/encode_service.dart';
 import 'package:pixel_forge/core/image/image_format.dart';
 import 'package:pixel_forge/core/image/image_header_probe.dart';
 import 'package:pixel_forge/core/platform/app_platform.dart';
 import 'package:pixel_forge/core/platform/capabilities.dart';
 import 'package:pixel_forge/features/editor/editor_controller.dart';
 import 'package:pixel_forge/features/editor/editor_state.dart';
+import 'package:pixel_forge/services/file/export_service.dart';
 import 'package:pixel_forge/services/file/import_service.dart';
 
 /// 可编排返回值的导入服务替身。
@@ -33,6 +36,37 @@ class _FakeDecodeService extends DecodeService {
   @override
   Future<DecodeResult?> decodePreview(Uint8List bytes) async => _result();
 }
+
+/// 编码服务替身，可记录最后一次请求以验证参数透传。
+class _FakeEncodeService extends EncodeService {
+  _FakeEncodeService(this._result, this.onRequest);
+
+  final EncodeResult? Function() _result;
+  final void Function(EncodeRequest)? onRequest;
+
+  @override
+  Future<EncodeResult?> encode(EncodeRequest request) async {
+    onRequest?.call(request);
+    return _result();
+  }
+}
+
+/// 导出服务替身：返回固定路径，或 null 表示用户取消保存面板。
+class _FakeExportService extends ExportService {
+  _FakeExportService(this._path);
+
+  final String? _path;
+
+  @override
+  Future<ExportResult?> save(ExportRequest request) async =>
+      _path == null ? null : ExportResult(savedPath: _path);
+}
+
+EncodeResult _stubEncode() => EncodeResult(
+  bytes: Uint8List.fromList([0x89, 0x50, 0x4E, 0x47]),
+  size: const ImageDimensions(100, 100),
+  alphaFlattened: false,
+);
 
 DecodeResult _stubDecode() => DecodeResult(
   previewPng: Uint8List.fromList([0x89, 0x50, 0x4E, 0x47]),
@@ -92,6 +126,9 @@ ImportResult _pngResult(int w, int h) {
 (ProviderContainer, EditorController) _make(
   ImportResult? Function() result, {
   DecodeResult? Function()? decode,
+  EncodeResult? Function()? encode,
+  String? savePath = '/tmp/out.png',
+  void Function(EncodeRequest)? onEncode,
 }) {
   final container = ProviderContainer(
     overrides: [
@@ -99,6 +136,10 @@ ImportResult _pngResult(int w, int h) {
       decodeServiceProvider.overrideWithValue(
         _FakeDecodeService(decode ?? _stubDecode),
       ),
+      encodeServiceProvider.overrideWithValue(
+        _FakeEncodeService(encode ?? _stubEncode, onEncode),
+      ),
+      exportServiceProvider.overrideWithValue(_FakeExportService(savePath)),
     ],
   );
   final controller = container.read(editorControllerProvider.notifier);
@@ -184,6 +225,204 @@ void main() {
       expect(decoding.busy, isTrue);
       expect(exporting.busy, isTrue);
       expect(const EditorState(stage: EditorStage.editable).busy, isFalse);
+    });
+  });
+
+  group('导出链路', () {
+    test('导出成功 → done 态并记录保存路径', () async {
+      final (container, controller) = _make(_validResult);
+      addTearDown(container.dispose);
+      await controller.pickAndLoad();
+
+      await controller.export(format: ImageFormat.png, quality: 85);
+
+      expect(controller.state.stage, EditorStage.done);
+      expect(controller.state.exportedPath, '/tmp/out.png');
+      expect(controller.state.failure, isNull);
+    });
+
+    test('编码失败 → 导出失败态 E-EXPORT-006', () async {
+      final (container, controller) = _make(_validResult, encode: () => null);
+      addTearDown(container.dispose);
+      await controller.pickAndLoad();
+
+      await controller.export(format: ImageFormat.png, quality: 85);
+
+      expect(controller.state.stage, EditorStage.exportFailed);
+      expect(controller.state.failure?.code, AppErrorCode.encodeFailed);
+    });
+
+    test('用户取消保存面板 → 回到可编辑态，不算失败', () async {
+      final (container, controller) = _make(_validResult, savePath: null);
+      addTearDown(container.dispose);
+      await controller.pickAndLoad();
+
+      await controller.export(format: ImageFormat.png, quality: 85);
+
+      expect(controller.state.stage, EditorStage.editable);
+      expect(controller.state.failure, isNull);
+    });
+
+    test('未导入图片时导出无动作', () async {
+      final (container, controller) = _make(() => null);
+      addTearDown(container.dispose);
+
+      await controller.export(format: ImageFormat.png, quality: 85);
+
+      expect(controller.state.stage, EditorStage.empty);
+    });
+
+    test('continueEditing 从 done 回到可编辑', () async {
+      final (container, controller) = _make(_validResult);
+      addTearDown(container.dispose);
+      await controller.pickAndLoad();
+      await controller.export(format: ImageFormat.png, quality: 85);
+      expect(controller.state.stage, EditorStage.done);
+
+      controller.continueEditing();
+
+      expect(controller.state.stage, EditorStage.editable);
+    });
+  });
+
+  group('裁剪选区', () {
+    test('导入后默认全选整图，且不算生效中的裁剪', () async {
+      final (container, controller) = _make(_validResult);
+      addTearDown(container.dispose);
+      await controller.pickAndLoad();
+
+      final crop = controller.state.crop!;
+      expect(crop.left, 0);
+      expect(crop.top, 0);
+      expect(crop.width, 100);
+      expect(crop.height, 100);
+      expect(controller.state.hasCrop, isFalse);
+    });
+
+    test('缩小选区后 hasCrop 为真', () async {
+      final (container, controller) = _make(_validResult);
+      addTearDown(container.dispose);
+      await controller.pickAndLoad();
+
+      controller.updateCrop(
+        const CropSelection(left: 10, top: 10, width: 50, height: 40),
+      );
+
+      expect(controller.state.hasCrop, isTrue);
+      expect(controller.state.crop?.width, 50);
+    });
+
+    test('圆形即使覆盖全图也算生效（要抹掉圆外像素）', () async {
+      final (container, controller) = _make(_validResult);
+      addTearDown(container.dispose);
+      await controller.pickAndLoad();
+
+      controller.updateCropShape(CropShape.circle);
+
+      expect(controller.state.hasCrop, isTrue);
+    });
+
+    test('导出时把整数裁剪区传给编码服务', () async {
+      EncodeRequest? captured;
+      final (container, controller) = _make(
+        _validResult,
+        onEncode: (request) => captured = request,
+      );
+      addTearDown(container.dispose);
+      await controller.pickAndLoad();
+      controller.updateCrop(
+        const CropSelection(left: 10.4, top: 20.6, width: 50, height: 40),
+      );
+
+      await controller.export(format: ImageFormat.png, quality: 85);
+
+      expect(captured?.crop?.x, 10);
+      expect(captured?.crop?.y, 21);
+      expect(captured?.crop?.width, 50);
+      expect(captured?.cropCircle, isFalse);
+    });
+
+    test('全图选区导出时不传裁剪区（省一次整图拷贝）', () async {
+      EncodeRequest? captured;
+      final (container, controller) = _make(
+        _validResult,
+        onEncode: (request) => captured = request,
+      );
+      addTearDown(container.dispose);
+      await controller.pickAndLoad();
+
+      await controller.export(format: ImageFormat.png, quality: 85);
+
+      expect(captured?.crop, isNull);
+      expect(captured?.cropCircle, isFalse);
+    });
+
+    test('圆形选区导出时带 cropCircle 标记', () async {
+      EncodeRequest? captured;
+      final (container, controller) = _make(
+        _validResult,
+        onEncode: (request) => captured = request,
+      );
+      addTearDown(container.dispose);
+      await controller.pickAndLoad();
+      controller.updateCropShape(CropShape.circle);
+
+      await controller.export(format: ImageFormat.png, quality: 85);
+
+      expect(captured?.cropCircle, isTrue);
+      expect(captured?.crop, isNotNull);
+    });
+
+    test('切到圆形时非法比例自动回落到 1:1', () async {
+      final (container, controller) = _make(_validResult);
+      addTearDown(container.dispose);
+      await controller.pickAndLoad();
+
+      controller.updateCropAspect(CropAspect.ratio16x9);
+      expect(controller.state.cropAspect, CropAspect.ratio16x9);
+
+      controller.updateCropShape(CropShape.circle);
+      expect(controller.state.cropAspect, CropAspect.square);
+    });
+
+    test('圆形下切换非法比例被忽略', () async {
+      final (container, controller) = _make(_validResult);
+      addTearDown(container.dispose);
+      await controller.pickAndLoad();
+      controller.updateCropShape(CropShape.circle);
+
+      controller.updateCropAspect(CropAspect.ratio4x3);
+
+      expect(controller.state.cropAspect, CropAspect.square);
+    });
+
+    test('resetCrop 恢复整图选区', () async {
+      final (container, controller) = _make(_validResult);
+      addTearDown(container.dispose);
+      await controller.pickAndLoad();
+      controller.updateCrop(
+        const CropSelection(left: 10, top: 10, width: 50, height: 40),
+      );
+
+      controller.resetCrop();
+
+      expect(controller.state.crop?.width, 100);
+      expect(controller.state.crop?.height, 100);
+      expect(controller.state.hasCrop, isFalse);
+    });
+
+    test('重新导入后选区重置为整图', () async {
+      final (container, controller) = _make(_validResult);
+      addTearDown(container.dispose);
+      await controller.pickAndLoad();
+      controller.updateCrop(
+        const CropSelection(left: 10, top: 10, width: 50, height: 40),
+      );
+
+      await controller.pickAndLoad();
+
+      expect(controller.state.crop?.width, 100);
+      expect(controller.state.hasCrop, isFalse);
     });
   });
 }

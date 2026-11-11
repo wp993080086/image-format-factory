@@ -125,6 +125,9 @@ class ImageHeaderProbe {
   }
 
   // --- ICO：目录项中宽高各 1 字节（0 表示 256） ---
+  //
+  // 只读目录首项：ICO 单边上限 256，72k 像素以下，任何端的像素上限都不会被
+  // 触发，扫描全目录取最大值与读首项结果一致，故不做额外扫描。
   static ImageDimensions? _probeIco(Uint8List b) {
     if (b.length < 8) return null;
     final w = b[6] == 0 ? 256 : b[6];

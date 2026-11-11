@@ -1,5 +1,6 @@
 import '../../services/file/import_service.dart';
 import '../../core/error/app_error.dart';
+import '../../core/image/crop_selection.dart';
 import '../../core/image/decode_service.dart';
 
 /// 功能页共用状态机的阶段（对应 PRD 九.5）。
@@ -50,6 +51,10 @@ class EditorState {
     this.failure,
     this.phase = ProgressPhase.readingFile,
     this.progress = 0,
+    this.exportedPath,
+    this.crop,
+    this.cropShape = CropShape.rectangle,
+    this.cropAspect = CropAspect.free,
   });
 
   final EditorStage stage;
@@ -68,6 +73,29 @@ class EditorState {
   /// 进度 0.0–1.0。
   final double progress;
 
+  /// 导出成功后的本地路径（done 态有值；Web 端下载通道为 null）。
+  final String? exportedPath;
+
+  /// 裁剪选区（原图坐标系）。null 表示未设置，导出时视为不裁剪。
+  final CropSelection? crop;
+
+  /// 裁剪形状，跨页保留（导出时需要据此决定是否套圆形遮罩）。
+  final CropShape cropShape;
+
+  /// 比例预设，跨页保留以便返回裁剪页时恢复。
+  final CropAspect cropAspect;
+
+  /// 是否有生效中的裁剪（非全图矩形）。
+  ///
+  /// 圆形即使覆盖全图也算生效——圆外像素要被抹成透明。
+  bool get hasCrop {
+    final selection = crop;
+    final size = decoded?.sourceSize;
+    if (selection == null || size == null) return false;
+    if (cropShape == CropShape.circle) return true;
+    return !selection.covers(size);
+  }
+
   /// 是否处于「中」态——此态禁用输入、不允许返回上一页（PRD 九.5）。
   bool get busy =>
       stage == EditorStage.detecting ||
@@ -84,7 +112,12 @@ class EditorState {
     AppFailure? failure,
     ProgressPhase? phase,
     double? progress,
+    String? exportedPath,
+    CropSelection? crop,
+    CropShape? cropShape,
+    CropAspect? cropAspect,
     bool clearFailure = false,
+    bool clearCrop = false,
   }) {
     return EditorState(
       stage: stage ?? this.stage,
@@ -93,6 +126,10 @@ class EditorState {
       failure: clearFailure ? null : (failure ?? this.failure),
       phase: phase ?? this.phase,
       progress: progress ?? this.progress,
+      exportedPath: exportedPath ?? this.exportedPath,
+      crop: clearCrop ? null : (crop ?? this.crop),
+      cropShape: cropShape ?? this.cropShape,
+      cropAspect: cropAspect ?? this.cropAspect,
     );
   }
 }

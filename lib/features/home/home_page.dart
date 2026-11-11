@@ -12,8 +12,8 @@ import '../editor/editor_state.dart';
 
 /// 首页：图片导入入口 + MVP 功能入口。
 ///
-/// 四个入口对应三个页面：裁剪、尺寸与比例、导出（格式转换与图片压缩共用
-/// 同一导出面板，仅默认聚焦的 Tab 不同，见 PRD 四章首 / 十三章）。
+/// 四个入口对应三个页面：裁剪、尺寸与比例、导出。格式转换与图片压缩是同一个
+/// 导出面板（参数同屏、一次编码，PRD 四章首 / 五.6），仅入口文案不同。
 ///
 /// 导入能力（读取文件头、像素预检、Isolate 解码生成预览图）统一由
 /// [editorControllerProvider] 承担，功能页与首页共用同一份状态。
@@ -41,7 +41,9 @@ class HomePage extends ConsumerWidget {
               const SizedBox(height: 16),
               Text('功能', style: Theme.of(context).textTheme.titleMedium),
               const SizedBox(height: 8),
-              _FeatureGrid(enabled: state.canEdit),
+              // 已成功导入且不在「中」态即可进入功能页（含导出完成后的 done 态，
+              // 否则用户从导出页返回后入口会全部置灰、无路可走）。
+              _FeatureGrid(enabled: state.imported != null && !state.busy),
             ],
           ),
         ),
@@ -173,8 +175,8 @@ class _FeatureGrid extends StatelessWidget {
   static const _items = <_FeatureItem>[
     _FeatureItem(Icons.crop, '裁剪', AppRoutes.crop),
     _FeatureItem(Icons.photo_size_select_large, '尺寸与比例', AppRoutes.resize),
-    _FeatureItem(Icons.swap_horiz, '格式转换', AppRoutes.exportConvert),
-    _FeatureItem(Icons.compress, '图片压缩', AppRoutes.exportCompress),
+    _FeatureItem(Icons.swap_horiz, '格式转换', AppRoutes.exportPanel),
+    _FeatureItem(Icons.compress, '图片压缩', AppRoutes.exportPanel),
   ];
 
   @override
