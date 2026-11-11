@@ -1,10 +1,11 @@
-import 'dart:typed_data';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pixel_forge/app/app.dart';
+import 'package:pixel_forge/app/app_info.dart';
 import 'package:pixel_forge/core/di/providers.dart';
 import 'package:pixel_forge/core/image/decode_service.dart';
 import 'package:pixel_forge/core/image/encode_service.dart';
@@ -68,14 +69,38 @@ class _RecordingEncodeService extends EncodeService {
   }
 }
 
-/// 保存替身：不唤起系统弹窗，直接返回一个假路径。
+/// 保存替身：不唤起系统弹窗，直接返回一个假路径，并记录保存过的文件名与内容。
 class _FakeExportService extends ExportService {
-  const _FakeExportService();
+  _FakeExportService();
+
+  final List<String> savedNames = <String>[];
+
+  /// 最近一次保存的文本内容（诊断日志用例断言用）。
+  String savedContent = '';
 
   @override
-  Future<ExportResult?> save(ExportRequest request) async =>
-      const ExportResult(savedPath: r'C:\out\result.png');
+  Future<ExportResult?> save(ExportRequest request) async {
+    savedNames.add(request.suggestedName);
+    return ExportResult(savedPath: 'C:/out/${request.suggestedName}');
+  }
+
+  @override
+  Future<ExportResult?> saveAs({
+    required String suggestedName,
+    required Uint8List bytes,
+    required List<String> extensions,
+    required String label,
+  }) async {
+    savedNames.add(suggestedName);
+    savedContent = utf8.decode(bytes);
+    return ExportResult(savedPath: 'C:/out/$suggestedName');
+  }
 }
+
+/// 诊断日志替身：真实实现要读磁盘日志目录，组件测试里没有 path_provider
+/// 通道，直接调用会永久挂起。
+Future<String> _stubDiagnostics({String header = ''}) async =>
+    '$header\n===== 当前会话 =====\n（测试会话）';
 
 /// 一张真实的 1×1 透明 PNG，供 `Image.memory` 正常解码（假字节会触发 codec 异常）。
 final Uint8List _onePixelPng = Uint8List.fromList(const [
@@ -96,6 +121,7 @@ Future<void> _bootHome(
   bool hasSemiTransparent = false,
   Size viewSize = const Size(1000, 1400),
   EncodeService? encodeService,
+  ExportService? exportService,
 }) async {
   // 裁剪页底部参数面板较高，默认 800×600 视口会把画布压到溢出
   tester.view.physicalSize = viewSize;
@@ -108,7 +134,10 @@ Future<void> _bootHome(
         decodeServiceProvider.overrideWithValue(
           _FakeDecodeService(size, hasSemiTransparent),
         ),
-        exportServiceProvider.overrideWithValue(const _FakeExportService()),
+        exportServiceProvider.overrideWithValue(
+          exportService ?? _FakeExportService(),
+        ),
+        diagnosticsProvider.overrideWithValue(_stubDiagnostics),
         if (encodeService != null)
           encodeServiceProvider.overrideWithValue(encodeService),
       ],
@@ -454,5 +483,36 @@ void main() {
 
     expect(find.byKey(const ValueKey('cropCanvas')), findsOneWidget);
     expect(find.bySemanticsLabel('裁剪画布'), findsOneWidget);
+  });
+
+  // ---------- S6 关于页与诊断日志（PRD 十三、十六.2） ----------
+
+  testWidgets('关于页：展示版本号与隐私说明', (tester) async {
+    await _bootHome(tester);
+
+    await tester.tap(find.byTooltip('关于'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('版本 $appVersionLabel'), findsOneWidget);
+    expect(find.text('隐私说明'), findsOneWidget);
+    // 隐私声明是上架硬要求，逐条列出而不是一句话概括
+    expect(find.textContaining('不上传任何图片'), findsOneWidget);
+    expect(find.text('第三方组件许可'), findsOneWidget);
+  });
+
+  testWidgets('关于页：导出诊断日志走保存通道', (tester) async {
+    final export = _FakeExportService();
+    await _bootHome(tester, exportService: export);
+    await tester.tap(find.byTooltip('关于'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('导出诊断日志'));
+    await tester.pumpAndSettle();
+
+    expect(export.savedNames.length, 1);
+    expect(export.savedNames.single, startsWith('pixel-forge-log-'));
+    expect(export.savedNames.single, endsWith('.txt'));
+    expect(export.savedContent, contains('当前会话'));
+    expect(find.textContaining('诊断日志已保存'), findsOneWidget);
   });
 }

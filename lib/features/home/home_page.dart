@@ -66,7 +66,16 @@ class _HomePageState extends ConsumerState<HomePage> {
     final state = ref.watch(editorControllerProvider);
 
     final content = Scaffold(
-      appBar: AppBar(title: const Text('像素工坊')),
+      appBar: AppBar(
+        title: const Text('像素工坊'),
+        actions: [
+          IconButton(
+            tooltip: '关于',
+            onPressed: () => context.push(AppRoutes.about),
+            icon: const Icon(Icons.info_outline),
+          ),
+        ],
+      ),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 720),

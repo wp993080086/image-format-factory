@@ -2,9 +2,21 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../image/decode_service.dart';
 import '../image/encode_service.dart';
+import '../log/app_logger.dart';
 import '../platform/app_platform.dart';
 import '../platform/capabilities.dart';
 import '../../services/file/export_service.dart';
+
+/// 诊断日志聚合函数的签名（PRD 十六.2）。
+typedef DiagnosticsCollector = Future<String> Function({String header});
+
+/// 诊断日志聚合器。
+///
+/// 单独抽成 provider 而不是让「关于」页直接调 [AppLogger]：聚合过程要读磁盘，
+/// 组件测试里没有 path_provider 通道，直接调用会永久挂起。
+final diagnosticsProvider = Provider<DiagnosticsCollector>(
+  (ref) => AppLogger.collectDiagnostics,
+);
 
 /// 当前端能力矩阵（全局只读）。
 final capabilitiesProvider = Provider<PlatformCapabilities>(

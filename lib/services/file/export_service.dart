@@ -53,17 +53,33 @@ class ExportService {
 
   /// 唤起系统保存面板并写入文件；用户取消时返回 null。
   Future<ExportResult?> save(ExportRequest request) async {
-    final group = XTypeGroup(
-      label: request.format.displayName,
-      extensions: request.format.extensions,
-    );
-    final location = await getSaveLocation(
+    return saveAs(
       suggestedName: request.suggestedName,
+      bytes: request.bytes,
+      extensions: request.format.extensions,
+      label: request.format.displayName,
+    );
+  }
+
+  /// 保存任意文件（如诊断日志），与图片导出共用同一套保存面板逻辑。
+  ///
+  /// 单独开这个入口而不是给 [ExportRequest] 加字段：图片导出需要
+  /// [ImageFormat] 决定扩展名与类型分组，文本文件没有对应格式枚举，
+  /// 硬塞会让 `ImageFormat` 承担它不该承担的语义。
+  Future<ExportResult?> saveAs({
+    required String suggestedName,
+    required Uint8List bytes,
+    required List<String> extensions,
+    required String label,
+  }) async {
+    final group = XTypeGroup(label: label, extensions: extensions);
+    final location = await getSaveLocation(
+      suggestedName: suggestedName,
       acceptedTypeGroups: [group],
     );
     if (location == null) return null;
 
-    await writeBytesToFile(location.path, request.bytes);
+    await writeBytesToFile(location.path, bytes);
     return ExportResult(savedPath: location.path);
   }
 }
