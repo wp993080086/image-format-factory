@@ -26,6 +26,8 @@ dependencies:
   # 路径（导出临时目录等）
   path_provider: ^2.1.6
   path: ^1.9.1
+  # 桌面拖拽导入（仅 Windows 启用，见 PRD 六.1）
+  desktop_drop: ^0.8.4
   flutter_localizations:
     sdk: flutter
 

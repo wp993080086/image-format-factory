@@ -51,7 +51,7 @@ class ImportService {
   ///
   /// 用户取消时返回 null。
   /// TODO: Android/鸿蒙走系统文件选择器、Web 增加粘贴导入、
-  /// Windows 增加拖拽导入、小程序改相册选择——当前统一走 file_selector。
+  /// 小程序改相册选择——当前统一走 file_selector。
   Future<ImportResult?> pickImage() async {
     final group = XTypeGroup(
       label: '图片文件',
@@ -61,13 +61,32 @@ class ImportService {
     if (file == null) return null;
 
     final bytes = await file.readAsBytes();
-    final ext = file.name.split('.').last;
+    return buildResult(fileName: file.name, bytes: bytes);
+  }
+
+  /// 从磁盘路径读取（拖拽导入，PRD 六.1）。
+  ///
+  /// 拖拽与文件选择器共用同一套探测逻辑：扩展名只作回退提示，
+  /// 格式最终以内容为准（PRD 一.5）。
+  Future<ImportResult?> readFileAt(String path, {String? name}) async {
+    final file = XFile(path);
+    final bytes = await file.readAsBytes();
+    return buildResult(fileName: name ?? file.name, bytes: bytes);
+  }
+
+  /// 由文件名字节构造导入结果（文件选择器与拖拽共用）。
+  ImportResult buildResult({
+    required String fileName,
+    required Uint8List bytes,
+  }) {
+    final dot = fileName.lastIndexOf('.');
+    final ext = dot >= 0 ? fileName.substring(dot + 1) : '';
     final byExt = ImageFormat.fromExtension(ext);
     final detected = ImageFormatDetector.detect(bytes);
     // 以内容为准；内容无法识别时回退扩展名（PRD 一.5）。
     final format = detected?.format ?? byExt;
     return ImportResult(
-      fileName: file.name,
+      fileName: fileName,
       bytes: bytes,
       format: format,
       isAnimated: detected?.isAnimated ?? false,

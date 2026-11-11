@@ -286,6 +286,47 @@ void main() {
     });
   });
 
+  group('拖拽导入', () {
+    test('loadImport 与选图走同一套探测与解码流程', () async {
+      final (container, controller) = _make(() => null);
+      addTearDown(container.dispose);
+
+      await controller.loadImport(_validResult());
+
+      expect(controller.state.stage, EditorStage.editable);
+      expect(controller.state.imported?.fileName, 'a.png');
+      expect(controller.state.crop, isNotNull);
+    });
+
+    test('非图片内容 → E-IMG-002', () async {
+      final (container, controller) = _make(() => null);
+      addTearDown(container.dispose);
+
+      await controller.loadImport(
+        ImportResult(
+          fileName: 'a.txt',
+          bytes: Uint8List.fromList([1, 2, 3, 4]),
+          format: null,
+          isAnimated: false,
+          extensionMismatch: false,
+        ),
+      );
+
+      expect(controller.state.stage, EditorStage.importFailed);
+      expect(controller.state.failure?.code, AppErrorCode.corruptedFile);
+    });
+
+    test('超大图片走同一套像素预检', () async {
+      final (container, controller) = _make(() => null);
+      addTearDown(container.dispose);
+
+      // 20000×20000 = 4 亿像素，超过 Windows 的 1 亿上限
+      await controller.loadImport(_pngResult(20000, 20000));
+
+      expect(controller.state.failure?.code, AppErrorCode.pixelLimitExceeded);
+    });
+  });
+
   group('尺寸与比例', () {
     test('导入后没有生效中的尺寸变换', () async {
       final (container, controller) = _make(_validResult);

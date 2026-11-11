@@ -1,3 +1,4 @@
+import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -7,6 +8,7 @@ import '../../core/di/providers.dart';
 import '../../core/error/app_error.dart';
 import '../../core/image/image_format.dart';
 import '../../core/platform/capabilities.dart';
+import '../../services/file/import_service.dart';
 import '../editor/editor_controller.dart';
 import '../editor/editor_state.dart';
 
@@ -17,14 +19,53 @@ import '../editor/editor_state.dart';
 ///
 /// 导入能力（读取文件头、像素预检、Isolate 解码生成预览图）统一由
 /// [editorControllerProvider] 承担，功能页与首页共用同一份状态。
-class HomePage extends ConsumerWidget {
+class HomePage extends ConsumerStatefulWidget {
   const HomePage({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<HomePage> createState() => _HomePageState();
+}
+
+class _HomePageState extends ConsumerState<HomePage> {
+  /// 拖拽悬停中：盖一层提示遮罩（仅 Windows 启用，见七.1）。
+  bool _dragging = false;
+
+  /// 拖拽落地：单文件直接导入，多文件只取第一个并提示（PRD 六.5）。
+  Future<void> _handleDrop(DropDoneDetails detail) async {
+    if (_dragging) setState(() => _dragging = false);
+    final files = detail.files;
+    if (files.isEmpty) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    if (files.length > 1) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('当前版本一次只处理一张图片，已取第一张')),
+      );
+    }
+
+    final file = files.first;
+    try {
+      final result = await ref
+          .read(importServiceProvider)
+          .readFileAt(file.path, name: file.name);
+      if (result == null) return;
+      // 非图片直接提示，不进入解码（PRD 六.5：停留在当前页）
+      if (result.format == null) {
+        messenger.showSnackBar(const SnackBar(content: Text('不支持的文件类型')));
+        return;
+      }
+      await ref.read(editorControllerProvider.notifier).loadImport(result);
+    } catch (_) {
+      messenger.showSnackBar(const SnackBar(content: Text('无法读取该文件')));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final caps = ref.watch(capabilitiesProvider);
     final state = ref.watch(editorControllerProvider);
-    return Scaffold(
+
+    final content = Scaffold(
       appBar: AppBar(title: const Text('像素工坊')),
       body: Center(
         child: ConstrainedBox(
@@ -44,6 +85,53 @@ class HomePage extends ConsumerWidget {
               // 已成功导入且不在「中」态即可进入功能页（含导出完成后的 done 态，
               // 否则用户从导出页返回后入口会全部置灰、无路可走）。
               _FeatureGrid(enabled: state.imported != null && !state.busy),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    // 拖拽只在支持的端挂载，避免其它端无谓地初始化平台通道
+    if (!caps.dragDropImport) return content;
+    return DropTarget(
+      onDragEntered: (_) => setState(() => _dragging = true),
+      onDragExited: (_) => setState(() => _dragging = false),
+      onDragDone: _handleDrop,
+      child: Stack(
+        children: [
+          content,
+          if (_dragging) const Positioned.fill(child: _DropOverlay()),
+        ],
+      ),
+    );
+  }
+}
+
+/// 拖拽悬停遮罩。
+class _DropOverlay extends StatelessWidget {
+  const _DropOverlay();
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: ColoredBox(
+        color: const Color(0x99000000),
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.file_download_outlined,
+                size: 48,
+                color: Colors.white,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                '松开以导入图片',
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(color: Colors.white),
+              ),
             ],
           ),
         ),
