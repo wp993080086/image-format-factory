@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -11,6 +12,7 @@ import '../../core/image/crop_selection.dart';
 import '../../core/image/encode_service.dart';
 import '../../core/image/ico_packer.dart';
 import '../../core/image/image_format.dart';
+import '../../core/image/image_header_probe.dart';
 import '../editor/editor_controller.dart';
 import '../editor/editor_state.dart';
 
@@ -39,6 +41,22 @@ class _ExportPageState extends ConsumerState<ExportPage> {
 
   /// PNG 调色板压缩（PNG8），默认关（PRD 五.2）。
   bool _pngPalette = false;
+
+  /// 预估输出体积（字节）；null 表示未算出或该格式不预估（ICO）。
+  int? _estimate;
+  bool _estimating = false;
+
+  /// 参数变化后的 debounce 计时器（PRD 四.7：300ms）。
+  Timer? _estimateTimer;
+
+  /// 首次进入面板时触发一次预估，避免每次 build 重复调度。
+  bool _estimateRequested = false;
+
+  @override
+  void dispose() {
+    _estimateTimer?.cancel();
+    super.dispose();
+  }
 
   /// ICO 勾选的尺寸；空集表示尚未选择，按全部可用尺寸处理。
   Set<int> _icoSizes = {};
@@ -117,6 +135,66 @@ class _ExportPageState extends ConsumerState<ExportPage> {
     );
   }
 
+  /// 最终输出的像素尺寸：缩放优先，其次裁剪，最后原图（PRD 四.7）。
+  ImageDimensions _outputSize(EditorState state) {
+    final decoded = state.decoded;
+    if (decoded == null) return const ImageDimensions(0, 0);
+    if (state.hasResize) {
+      return ImageDimensions(state.resize!.width, state.resize!.height);
+    }
+    if (state.hasCrop) {
+      final area = state.crop!.toArea();
+      return ImageDimensions(area.width, area.height);
+    }
+    return decoded.sourceSize;
+  }
+
+  /// 参数变化后延迟 300ms 再算，避免拖动滑块时连续编码（PRD 四.7）。
+  void _scheduleEstimate() {
+    _estimateTimer?.cancel();
+    _estimateTimer = Timer(const Duration(milliseconds: 300), _runEstimate);
+  }
+
+  Future<void> _runEstimate() async {
+    if (!mounted) return;
+    final state = ref.read(editorControllerProvider);
+    final decoded = state.decoded;
+    if (decoded == null) return;
+    final target = _effectiveFormat(state, _allowedFormats);
+    if (target == ImageFormat.ico) {
+      setState(() {
+        _estimate = null;
+        _estimating = false;
+      });
+      return;
+    }
+    setState(() => _estimating = true);
+    try {
+      final bytes = await ref
+          .read(encodeServiceProvider)
+          .estimate(
+            EstimateRequest(
+              previewPng: decoded.previewPng,
+              outputSize: _outputSize(state),
+              format: target,
+              quality: _quality,
+              jpegChroma: _jpegChroma,
+              pngLevel: _pngLevel,
+              pngPalette: _pngPalette,
+            ),
+          );
+      if (!mounted) return;
+      setState(() {
+        _estimate = bytes;
+        _estimating = false;
+      });
+    } catch (_) {
+      // 预估失败不影响导出，静默隐藏即可
+      if (!mounted) return;
+      setState(() => _estimating = false);
+    }
+  }
+
   /// 按当前面板参数发起导出；ICO 需附带勾选的尺寸（PRD 一.4）。
   void _startExport(EditorState state) {
     final target = _effectiveFormat(state, _allowedFormats);
@@ -138,6 +216,11 @@ class _ExportPageState extends ConsumerState<ExportPage> {
   }
 
   Widget _buildPanel(EditorState state) {
+    // 首次渲染后立即预估一次；之后的参数变化走 300ms debounce
+    if (!_estimateRequested) {
+      _estimateRequested = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _runEstimate());
+    }
     final allowed = _allowedFormats;
     final target = _effectiveFormat(state, allowed);
     final imported = state.imported!;
@@ -227,7 +310,10 @@ class _ExportPageState extends ConsumerState<ExportPage> {
               ChoiceChip(
                 label: Text(format.displayName),
                 selected: format == target,
-                onSelected: (_) => setState(() => _chosenFormat = format),
+                onSelected: (_) {
+                  setState(() => _chosenFormat = format);
+                  _scheduleEstimate();
+                },
               ),
           ],
         ),
@@ -246,7 +332,10 @@ class _ExportPageState extends ConsumerState<ExportPage> {
             max: 100,
             divisions: 99,
             label: '$_quality',
-            onChanged: (value) => setState(() => _quality = value.round()),
+            onChanged: (value) {
+              setState(() => _quality = value.round());
+              _scheduleEstimate();
+            },
           ),
           const SizedBox(height: 4),
           Text('色度抽样', style: Theme.of(context).textTheme.titleSmall),
@@ -257,8 +346,10 @@ class _ExportPageState extends ConsumerState<ExportPage> {
                 ButtonSegment(value: option, label: Text(option.label)),
             ],
             selected: {_jpegChroma},
-            onSelectionChanged: (value) =>
-                setState(() => _jpegChroma = value.first),
+            onSelectionChanged: (value) {
+              setState(() => _jpegChroma = value.first);
+              _scheduleEstimate();
+            },
             showSelectedIcon: false,
             style: const ButtonStyle(visualDensity: VisualDensity.compact),
           ),
@@ -283,7 +374,10 @@ class _ExportPageState extends ConsumerState<ExportPage> {
             max: 9,
             divisions: 9,
             label: '$_pngLevel',
-            onChanged: (value) => setState(() => _pngLevel = value.round()),
+            onChanged: (value) {
+              setState(() => _pngLevel = value.round());
+              _scheduleEstimate();
+            },
           ),
           Text(
             '0 = 不压缩最快，9 = 最高压缩最慢；无损，不影响画质',
@@ -296,7 +390,10 @@ class _ExportPageState extends ConsumerState<ExportPage> {
             value: _pngPalette && !hasSemiTransparent,
             onChanged: hasSemiTransparent
                 ? null
-                : (value) => setState(() => _pngPalette = value),
+                : (value) {
+                    setState(() => _pngPalette = value);
+                    _scheduleEstimate();
+                  },
             title: const Text('调色板压缩（PNG8）'),
             subtitle: Text(
               hasSemiTransparent
@@ -316,7 +413,13 @@ class _ExportPageState extends ConsumerState<ExportPage> {
           const SizedBox(height: 12),
           _HintBar(text: hint),
         ],
-        const SizedBox(height: 24),
+        const SizedBox(height: 16),
+        _EstimateBar(
+          estimate: _estimate,
+          estimating: _estimating,
+          sourceBytes: imported.bytes.length,
+        ),
+        const SizedBox(height: 8),
         FilledButton.icon(
           // 无可生成尺寸时禁用：否则会以「缩小尺寸」的错误文案失败
           onPressed: target == ImageFormat.ico && icoSelected.isEmpty
@@ -332,6 +435,78 @@ class _ExportPageState extends ConsumerState<ExportPage> {
       ],
     );
   }
+}
+
+/// 体积预估条（PRD 四.7）：按 512px 采样外推，小体积时误差偏大，需标注。
+class _EstimateBar extends StatelessWidget {
+  const _EstimateBar({
+    required this.estimate,
+    required this.estimating,
+    required this.sourceBytes,
+  });
+
+  final int? estimate;
+  final bool estimating;
+  final int sourceBytes;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    // ICO 不预估，整块隐藏；计算中保留标题，避免布局在出现/消失之间跳动
+    if (!estimating && estimate == null) return const SizedBox.shrink();
+
+    if (estimating) {
+      // 刻意不用无限旋转的进度指示器：估算常在参数微调时反复触发，
+      // 转圈反而比一行文字更打扰；也让组件测试能正常 settle。
+      return Row(
+        children: [
+          Text('预估体积', style: theme.textTheme.titleSmall),
+          const Spacer(),
+          Text('计算中…', style: theme.textTheme.bodySmall),
+        ],
+      );
+    }
+
+    final value = estimate!;
+    final String ratio;
+    if (sourceBytes > 0) {
+      final delta = (value - sourceBytes) / sourceBytes;
+      final percent = (delta.abs() * 100).round();
+      ratio = delta <= 0 ? '压缩 $percent%' : '增大 $percent%';
+    } else {
+      ratio = '';
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text('预估体积', style: theme.textTheme.titleSmall),
+            const Spacer(),
+            Text('约 ${formatBytes(value)}'),
+          ],
+        ),
+        const SizedBox(height: 2),
+        Text(
+          [
+            '源文件 ${formatBytes(sourceBytes)}',
+            if (ratio.isNotEmpty) ratio,
+            // 采样外推在高压缩比的小图上误差最大，按 PRD 四.7 加注
+            if (value < 50 * 1024) '小体积误差较大',
+          ].join(' · '),
+          style: theme.textTheme.bodySmall,
+        ),
+      ],
+    );
+  }
+}
+
+/// 字节数的人类可读格式。
+String formatBytes(int bytes) {
+  if (bytes < 1024) return '$bytes B';
+  if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+  return '${(bytes / 1024 / 1024).toStringAsFixed(1)} MB';
 }
 
 /// 参数提示条（透明通道丢失 / WebP 降级，PRD 四.4 / 四.5）。

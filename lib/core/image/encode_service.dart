@@ -1,4 +1,5 @@
 import 'dart:isolate';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:image/image.dart' as img;
@@ -97,6 +98,33 @@ class EncodeResult {
   final bool alphaFlattened;
 }
 
+/// 体积预估请求（PRD 四.7）。
+///
+/// 输入是**预览图**而非原图字节：预览图长边已降到 2048，解码成本远低于
+/// 原图；估算本来就不需要全分辨率内容。
+class EstimateRequest {
+  const EstimateRequest({
+    required this.previewPng,
+    required this.outputSize,
+    required this.format,
+    this.quality = 85,
+    this.jpegChroma = JpegChromaOption.yuv420,
+    this.pngLevel = 6,
+    this.pngPalette = false,
+  });
+
+  final Uint8List previewPng;
+
+  /// 最终输出的像素尺寸（已计入裁剪与缩放），用于把采样体积外推。
+  final ImageDimensions outputSize;
+
+  final ImageFormat format;
+  final int quality;
+  final JpegChromaOption jpegChroma;
+  final int pngLevel;
+  final bool pngPalette;
+}
+
 /// 图片编码服务：在独立 Isolate 中二次解码全图并编码为导出格式。
 ///
 /// 对应 PRD 九.3 延迟渲染（导出时从源字节流重新解码）与八.9（编解码不占主 Isolate）。
@@ -135,6 +163,17 @@ class EncodeService {
         request.pngPalette,
       ),
     );
+  }
+
+  /// 预估导出体积（PRD 四.7）。
+  ///
+  /// 把预览图降到长边 512 后按当前参数编码，再按「输出像素 / 采样像素」
+  /// 外推。误差在 30% 量级以内，UI 以「约」呈现。
+  ///
+  /// ICO 是多尺寸打包，体积与单一像素数不构成比例关系，返回 null，
+  /// 由 UI 隐藏预估（实际导出本身很快，无需预估）。
+  Future<int?> estimate(EstimateRequest request) {
+    return Isolate.run(() => _estimateBytes(request));
   }
 }
 
@@ -197,33 +236,18 @@ EncodeResult? _encodeImage(
   var alphaFlattened = false;
   if (!format.supportsAlpha && work.hasAlpha) {
     // 目标不支持 Alpha：透明区域填白底后合成（PRD 四.4 / 四.6）
-    final background = img.Image(
-      width: work.width,
-      height: work.height,
-      numChannels: 3,
-    );
-    img.fill(background, color: img.ColorRgb8(255, 255, 255));
-    img.compositeImage(background, work);
-    output = background;
+    output = _flattenToWhite(work);
     alphaFlattened = true;
   }
 
-  final bytes = switch (format) {
-    // 注意：encodeJpg 默认色度抽样是 yuv444，PRD 九.4 要求默认 4:2:0，故显式传入
-    ImageFormat.jpeg => img.encodeJpg(
-      output,
-      quality: quality.clamp(1, 100),
-      chroma: jpegChroma == JpegChromaOption.yuv420
-          ? img.JpegChroma.yuv420
-          : img.JpegChroma.yuv444,
-    ),
-    ImageFormat.png => img.encodePng(
-      _applyPalette(output, pngPalette),
-      level: pngLevel.clamp(0, 9),
-    ),
-    ImageFormat.bmp => img.encodeBmp(output),
-    _ => null,
-  };
+  final bytes = _encodeBytes(
+    output,
+    format,
+    quality,
+    jpegChroma,
+    pngLevel,
+    pngPalette,
+  );
   if (bytes == null) return null;
 
   return EncodeResult(
@@ -231,6 +255,83 @@ EncodeResult? _encodeImage(
     size: ImageDimensions(output.width, output.height),
     alphaFlattened: alphaFlattened,
   );
+}
+
+/// 透明区域填白底，返回 3 通道图（PRD 四.4 / 四.6）。
+img.Image _flattenToWhite(img.Image image) {
+  final background = img.Image(
+    width: image.width,
+    height: image.height,
+    numChannels: 3,
+  );
+  img.fill(background, color: img.ColorRgb8(255, 255, 255));
+  img.compositeImage(background, image);
+  return background;
+}
+
+/// 按目标格式编码，导出与体积预估共用同一套参数。
+Uint8List? _encodeBytes(
+  img.Image image,
+  ImageFormat format,
+  int quality,
+  JpegChromaOption jpegChroma,
+  int pngLevel,
+  bool pngPalette,
+) {
+  return switch (format) {
+    // 注意：encodeJpg 默认色度抽样是 yuv444，PRD 九.4 要求默认 4:2:0，故显式传入
+    ImageFormat.jpeg => img.encodeJpg(
+      image,
+      quality: quality.clamp(1, 100),
+      chroma: jpegChroma == JpegChromaOption.yuv420
+          ? img.JpegChroma.yuv420
+          : img.JpegChroma.yuv444,
+    ),
+    ImageFormat.png => img.encodePng(
+      _applyPalette(image, pngPalette),
+      level: pngLevel.clamp(0, 9),
+    ),
+    ImageFormat.bmp => img.encodeBmp(image),
+    _ => null,
+  };
+}
+
+/// 子 Isolate 入口：估算体积（PRD 四.7）。
+int? _estimateBytes(EstimateRequest request) {
+  if (request.format == ImageFormat.ico) return null;
+  final decoded = img.decodeImage(request.previewPng);
+  if (decoded == null) return null;
+
+  // 采样图：长边不超过 512。用 average 降采样，避免 cubic 在强缩小时
+  // 引入额外细腻过渡而高估体积。
+  const maxEdge = 512;
+  final longEdge = math.max(decoded.width, decoded.height);
+  final sample = longEdge <= maxEdge
+      ? decoded
+      : img.copyResize(
+          decoded,
+          width: math.max(1, (decoded.width * maxEdge / longEdge).round()),
+          height: math.max(1, (decoded.height * maxEdge / longEdge).round()),
+          interpolation: img.Interpolation.average,
+        );
+
+  final prepared = !request.format.supportsAlpha && sample.hasAlpha
+      ? _flattenToWhite(sample)
+      : sample;
+  final bytes = _encodeBytes(
+    prepared,
+    request.format,
+    request.quality,
+    request.jpegChroma,
+    request.pngLevel,
+    request.pngPalette,
+  );
+  if (bytes == null) return null;
+
+  final sampled = prepared.width * prepared.height;
+  if (sampled <= 0) return null;
+  final ratio = request.outputSize.pixels / sampled;
+  return math.max(1, (bytes.length * ratio).round());
 }
 
 /// PNG8 调色板压缩（PRD 五.2）。

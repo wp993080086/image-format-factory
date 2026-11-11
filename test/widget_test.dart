@@ -238,6 +238,8 @@ void main() {
     );
     expect(palette.onChanged, isNotNull);
     expect(find.textContaining('最多 256 色'), findsOneWidget);
+    // 体积预估块（PRD 四.7）：首次进入即开始计算
+    expect(find.text('预估体积'), findsOneWidget);
   });
 
   testWidgets('导出面板：半透明源禁用调色板压缩并说明原因', (tester) async {
