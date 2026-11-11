@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:image/image.dart' as img;
 
+import 'alpha_scan.dart';
 import 'decode_policy.dart';
 import 'format_detector.dart';
 import 'ico_frame_select.dart';
@@ -14,6 +15,7 @@ class DecodeResult {
     required this.previewPng,
     required this.sourceSize,
     required this.previewSize,
+    this.hasSemiTransparent = false,
   });
 
   /// 预览图（PNG 编码，已降采样），供 UI 直接 `Image.memory` 展示。
@@ -24,6 +26,9 @@ class DecodeResult {
 
   /// 预览图尺寸。
   final ImageDimensions previewSize;
+
+  /// 原图是否含半透明像素（PRD 五.2：决定 PNG 调色板压缩能否使用）。
+  final bool hasSemiTransparent;
 }
 
 /// 图片解码服务：在独立 Isolate 中解码并按策略生成预览图（PRD 八.9 / 九.3）。
@@ -79,5 +84,7 @@ DecodeResult? _decodeAndResize(TransferableTypedData transferable) {
     previewPng: png,
     sourceSize: sourceSize,
     previewSize: ImageDimensions(preview.width, preview.height),
+    // 趁全图还在手里一次扫完，避免导出时再解一次（PRD 五.2）
+    hasSemiTransparent: hasSemiTransparentPixels(oriented),
   );
 }

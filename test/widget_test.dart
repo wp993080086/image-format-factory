@@ -27,16 +27,23 @@ class _FakeImportService extends ImportService {
 }
 
 class _FakeDecodeService extends DecodeService {
-  const _FakeDecodeService([this.size = const ImageDimensions(4, 4)]);
+  const _FakeDecodeService([
+    this.size = const ImageDimensions(4, 4),
+    this.hasSemiTransparent = false,
+  ]);
 
   /// 伪造的原图尺寸，供 ICO 尺寸矩阵等依赖真实宽高的用例切换。
   final ImageDimensions size;
+
+  /// 伪造的半透明标记，供 PNG 调色板禁用逻辑的用例切换。
+  final bool hasSemiTransparent;
 
   @override
   Future<DecodeResult?> decodePreview(Uint8List bytes) async => DecodeResult(
     previewPng: _onePixelPng,
     sourceSize: size,
     previewSize: size,
+    hasSemiTransparent: hasSemiTransparent,
   );
 }
 
@@ -56,6 +63,7 @@ final Uint8List _onePixelPng = Uint8List.fromList(const [
 Future<void> _bootHome(
   WidgetTester tester, {
   ImageDimensions size = const ImageDimensions(4, 4),
+  bool hasSemiTransparent = false,
   Size viewSize = const Size(1000, 1400),
 }) async {
   // 裁剪页底部参数面板较高，默认 800×600 视口会把画布压到溢出
@@ -66,7 +74,9 @@ Future<void> _bootHome(
     ProviderScope(
       overrides: [
         importServiceProvider.overrideWithValue(_FakeImportService()),
-        decodeServiceProvider.overrideWithValue(_FakeDecodeService(size)),
+        decodeServiceProvider.overrideWithValue(
+          _FakeDecodeService(size, hasSemiTransparent),
+        ),
       ],
       child: const PixelForgeApp(),
     ),
@@ -212,6 +222,52 @@ void main() {
     expect(find.text('输出格式'), findsOneWidget);
     expect(find.textContaining('已裁剪'), findsOneWidget);
     expect(find.text('还原整图'), findsOneWidget);
+  });
+
+  testWidgets('导出面板：PNG 显示压缩级别与调色板开关', (tester) async {
+    await _bootHome(tester);
+    await _importImage(tester);
+
+    await tester.tap(find.text('格式转换'));
+    await tester.pumpAndSettle();
+
+    // 源格式 PNG → 默认目标 PNG，直接显示 PNG 参数（PRD 五.2）
+    expect(find.text('压缩级别'), findsOneWidget);
+    final palette = tester.widget<SwitchListTile>(
+      find.widgetWithText(SwitchListTile, '调色板压缩（PNG8）'),
+    );
+    expect(palette.onChanged, isNotNull);
+    expect(find.textContaining('最多 256 色'), findsOneWidget);
+  });
+
+  testWidgets('导出面板：半透明源禁用调色板压缩并说明原因', (tester) async {
+    await _bootHome(tester, hasSemiTransparent: true);
+    await _importImage(tester);
+
+    await tester.tap(find.text('格式转换'));
+    await tester.pumpAndSettle();
+
+    final palette = tester.widget<SwitchListTile>(
+      find.widgetWithText(SwitchListTile, '调色板压缩（PNG8）'),
+    );
+    expect(palette.onChanged, isNull);
+    expect(find.textContaining('源图含半透明像素'), findsOneWidget);
+  });
+
+  testWidgets('导出面板：JPEG 显示色度抽样，默认 4:2:0', (tester) async {
+    await _bootHome(tester);
+    await _importImage(tester);
+
+    await tester.tap(find.text('格式转换'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('JPEG'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('色度抽样'), findsOneWidget);
+    expect(find.text('4:2:0'), findsOneWidget);
+    expect(find.text('4:4:4'), findsOneWidget);
+    // 默认选中 4:2:0：其说明文案可见
+    expect(find.textContaining('体积更小'), findsOneWidget);
   });
 
   testWidgets('尺寸页：展示原图与目标尺寸，默认不缩放', (tester) async {

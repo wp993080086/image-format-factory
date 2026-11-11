@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:image/image.dart' as img;
 
+import 'alpha_scan.dart';
 import 'crop_apply.dart';
 import 'crop_selection.dart';
 import 'format_detector.dart';
@@ -12,6 +13,20 @@ import 'image_format.dart';
 import 'image_header_probe.dart';
 import 'resize_apply.dart';
 import 'resize_geometry.dart';
+
+/// JPEG 色度抽样（PRD 五.1）。
+///
+/// `image` 包默认 `yuv444`，而 PRD 九.4 要求默认 4:2:0；两者体积差距可达
+/// 20–30%，必须由调用方显式指定。
+enum JpegChromaOption {
+  yuv420('4:2:0', '体积更小，网页与照片常用'),
+  yuv444('4:4:4', '保留更多色彩细节，体积更大');
+
+  const JpegChromaOption(this.label, this.description);
+
+  final String label;
+  final String description;
+}
 
 /// 编码请求。
 class EncodeRequest {
@@ -23,6 +38,9 @@ class EncodeRequest {
     this.crop,
     this.cropCircle = false,
     this.resize,
+    this.jpegChroma = JpegChromaOption.yuv420,
+    this.pngLevel = 6,
+    this.pngPalette = false,
   });
 
   /// 源文件字节流（会话期缓存，导出时据此二次解码全图，PRD 九.3 延迟渲染）。
@@ -49,6 +67,17 @@ class EncodeRequest {
   /// 与 [crop] 一样在同一次解码内完成，先裁后缩，最后统一编码
   /// （PRD 五.6 一次编码原则）。
   final ResizeTarget? resize;
+
+  /// JPEG 色度抽样，仅 [ImageFormat.jpeg] 有意义。
+  final JpegChromaOption jpegChroma;
+
+  /// PNG 压缩级别 0–9（0 不压缩、9 最高），仅 [ImageFormat.png] 有意义。
+  final int pngLevel;
+
+  /// 是否使用 PNG 调色板压缩（PNG8，有损，PRD 五.2）。
+  ///
+  /// 源图含半透明像素时编码端会自动跳过，见 [hasSemiTransparentPixels]。
+  final bool pngPalette;
 }
 
 /// 编码结果。
@@ -101,6 +130,9 @@ class EncodeService {
         request.crop,
         request.cropCircle,
         request.resize,
+        request.jpegChroma,
+        request.pngLevel,
+        request.pngPalette,
       ),
     );
   }
@@ -117,6 +149,9 @@ EncodeResult? _encodeImage(
   CropArea? crop,
   bool cropCircle,
   ResizeTarget? resize,
+  JpegChromaOption jpegChroma,
+  int pngLevel,
+  bool pngPalette,
 ) {
   final source = transferable.materialize().asUint8List();
   final decoded = img.decodeImage(source);
@@ -178,9 +213,14 @@ EncodeResult? _encodeImage(
     ImageFormat.jpeg => img.encodeJpg(
       output,
       quality: quality.clamp(1, 100),
-      chroma: img.JpegChroma.yuv420,
+      chroma: jpegChroma == JpegChromaOption.yuv420
+          ? img.JpegChroma.yuv420
+          : img.JpegChroma.yuv444,
     ),
-    ImageFormat.png => img.encodePng(output),
+    ImageFormat.png => img.encodePng(
+      _applyPalette(output, pngPalette),
+      level: pngLevel.clamp(0, 9),
+    ),
     ImageFormat.bmp => img.encodeBmp(output),
     _ => null,
   };
@@ -191,4 +231,15 @@ EncodeResult? _encodeImage(
     size: ImageDimensions(output.width, output.height),
     alphaFlattened: alphaFlattened,
   );
+}
+
+/// PNG8 调色板压缩（PRD 五.2）。
+///
+/// 半透明源自动跳过：PNG8 每个调色板项只能带一个 alpha，半透明边缘会在
+/// 量化后退化成硬边，肉眼可见。UI 侧已禁用该选项，这里再兜一层，
+/// 防止 API 被直接调用时静默劣化。
+img.Image _applyPalette(img.Image image, bool palette) {
+  if (!palette) return image;
+  if (hasSemiTransparentPixels(image)) return image;
+  return img.quantize(image, numberOfColors: 256);
 }

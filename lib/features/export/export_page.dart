@@ -31,6 +31,15 @@ class _ExportPageState extends ConsumerState<ExportPage> {
   /// JPG 质量，默认 85（PRD 九.4）。
   int _quality = 85;
 
+  /// JPG 色度抽样，默认 4:2:0（PRD 五.1）。
+  JpegChromaOption _jpegChroma = JpegChromaOption.yuv420;
+
+  /// PNG 压缩级别，默认 6（PRD 九.4）。
+  int _pngLevel = 6;
+
+  /// PNG 调色板压缩（PNG8），默认关（PRD 五.2）。
+  bool _pngPalette = false;
+
   /// ICO 勾选的尺寸；空集表示尚未选择，按全部可用尺寸处理。
   Set<int> _icoSizes = {};
 
@@ -118,7 +127,14 @@ class _ExportPageState extends ConsumerState<ExportPage> {
             decoded.sourceSize.height,
           ).toList()..sort())
         : const <int>[];
-    _controller.export(format: target, quality: _quality, icoSizes: icoSizes);
+    _controller.export(
+      format: target,
+      quality: _quality,
+      icoSizes: icoSizes,
+      jpegChroma: _jpegChroma,
+      pngLevel: _pngLevel,
+      pngPalette: _pngPalette,
+    );
   }
 
   Widget _buildPanel(EditorState state) {
@@ -143,6 +159,7 @@ class _ExportPageState extends ConsumerState<ExportPage> {
     ];
 
     final cropArea = state.crop?.toArea();
+    final hasSemiTransparent = state.decoded!.hasSemiTransparent;
 
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -230,6 +247,62 @@ class _ExportPageState extends ConsumerState<ExportPage> {
             divisions: 99,
             label: '$_quality',
             onChanged: (value) => setState(() => _quality = value.round()),
+          ),
+          const SizedBox(height: 4),
+          Text('色度抽样', style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: 6),
+          SegmentedButton<JpegChromaOption>(
+            segments: [
+              for (final option in JpegChromaOption.values)
+                ButtonSegment(value: option, label: Text(option.label)),
+            ],
+            selected: {_jpegChroma},
+            onSelectionChanged: (value) =>
+                setState(() => _jpegChroma = value.first),
+            showSelectedIcon: false,
+            style: const ButtonStyle(visualDensity: VisualDensity.compact),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            _jpegChroma.description,
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
+        if (target == ImageFormat.png) ...[
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Text('压缩级别', style: Theme.of(context).textTheme.titleSmall),
+              const Spacer(),
+              Text('$_pngLevel'),
+            ],
+          ),
+          Slider(
+            value: _pngLevel.toDouble(),
+            min: 0,
+            max: 9,
+            divisions: 9,
+            label: '$_pngLevel',
+            onChanged: (value) => setState(() => _pngLevel = value.round()),
+          ),
+          Text(
+            '0 = 不压缩最快，9 = 最高压缩最慢；无损，不影响画质',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 8),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            dense: true,
+            value: _pngPalette && !hasSemiTransparent,
+            onChanged: hasSemiTransparent
+                ? null
+                : (value) => setState(() => _pngPalette = value),
+            title: const Text('调色板压缩（PNG8）'),
+            subtitle: Text(
+              hasSemiTransparent
+                  ? '源图含半透明像素，PNG8 会把半透明压成硬边，已禁用'
+                  : '最多 256 色，有损，体积显著减小',
+            ),
           ),
         ],
         if (target == ImageFormat.ico)

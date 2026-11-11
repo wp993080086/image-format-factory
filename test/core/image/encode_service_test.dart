@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -7,6 +8,35 @@ import 'package:pixel_forge/core/image/encode_service.dart';
 import 'package:pixel_forge/core/image/ico_packer.dart';
 import 'package:pixel_forge/core/image/image_format.dart';
 import 'package:pixel_forge/core/image/resize_geometry.dart';
+
+/// 渐变图：重复度高，deflate 的压缩级别差异能体现出来。
+Uint8List _gradientPng({int size = 128}) {
+  final image = img.Image(width: size, height: size, numChannels: 3);
+  for (var y = 0; y < size; y++) {
+    for (var x = 0; x < size; x++) {
+      image.setPixelRgb(x, y, (x * 2) % 256, (y * 2) % 256, 128);
+    }
+  }
+  return img.encodePng(image);
+}
+
+/// 伪随机噪声图：真彩 PNG 体积显著大于 256 色版本，便于比较压缩效果。
+Uint8List _noisePng({int size = 64}) {
+  final random = math.Random(42);
+  final image = img.Image(width: size, height: size, numChannels: 3);
+  for (var y = 0; y < size; y++) {
+    for (var x = 0; x < size; x++) {
+      image.setPixelRgb(
+        x,
+        y,
+        random.nextInt(256),
+        random.nextInt(256),
+        random.nextInt(256),
+      );
+    }
+  }
+  return img.encodePng(image);
+}
 
 /// 生成带全透明像素的 RGBA PNG（用于验证透明填底）。
 Uint8List _transparentPng(int w, int h) {
@@ -342,6 +372,94 @@ void main() {
       final decoded = img.decodeJpg(result!.bytes)!;
       expect(decoded.width, 40);
       expect(decoded.height, 32);
+    });
+  });
+
+  group('导出参数（PRD 五.1 / 五.2）', () {
+    const service = EncodeService();
+
+    test('4:4:4 体积大于 4:2:0', () async {
+      final source = _noisePng();
+      final chroma420 = await service.encode(
+        EncodeRequest(
+          sourceBytes: source,
+          format: ImageFormat.jpeg,
+          quality: 85,
+          jpegChroma: JpegChromaOption.yuv420,
+        ),
+      );
+      final chroma444 = await service.encode(
+        EncodeRequest(
+          sourceBytes: source,
+          format: ImageFormat.jpeg,
+          quality: 85,
+          jpegChroma: JpegChromaOption.yuv444,
+        ),
+      );
+      expect(chroma444!.bytes.length, greaterThan(chroma420!.bytes.length));
+    });
+
+    test('PNG 压缩级别越高体积越小', () async {
+      final source = _gradientPng();
+      final fast = await service.encode(
+        EncodeRequest(
+          sourceBytes: source,
+          format: ImageFormat.png,
+          pngLevel: 0,
+        ),
+      );
+      final best = await service.encode(
+        EncodeRequest(
+          sourceBytes: source,
+          format: ImageFormat.png,
+          pngLevel: 9,
+        ),
+      );
+      expect(best!.bytes.length, lessThan(fast!.bytes.length));
+    });
+
+    test('PNG 调色板压缩输出索引色且体积更小', () async {
+      final source = _noisePng();
+      final trueColor = await service.encode(
+        EncodeRequest(sourceBytes: source, format: ImageFormat.png),
+      );
+      final paletted = await service.encode(
+        EncodeRequest(
+          sourceBytes: source,
+          format: ImageFormat.png,
+          pngPalette: true,
+        ),
+      );
+      expect(img.decodePng(paletted!.bytes)!.hasPalette, isTrue);
+      expect(img.decodePng(trueColor!.bytes)!.hasPalette, isFalse);
+      expect(paletted.bytes.length, lessThan(trueColor.bytes.length));
+    });
+
+    test('半透明源即使传入 pngPalette 也自动跳过', () async {
+      // 全图 alpha=128
+      final image = img.Image(width: 32, height: 32, numChannels: 4);
+      img.fill(image, color: img.ColorRgba8(200, 100, 50, 128));
+      final result = await service.encode(
+        EncodeRequest(
+          sourceBytes: img.encodePng(image),
+          format: ImageFormat.png,
+          pngPalette: true,
+        ),
+      );
+      expect(img.decodePng(result!.bytes)!.hasPalette, isFalse);
+    });
+
+    test('全透明源可以用调色板（透明不等于半透明）', () async {
+      final image = img.Image(width: 32, height: 32, numChannels: 4);
+      img.fill(image, color: img.ColorRgba8(0, 0, 0, 0));
+      final result = await service.encode(
+        EncodeRequest(
+          sourceBytes: img.encodePng(image),
+          format: ImageFormat.png,
+          pngPalette: true,
+        ),
+      );
+      expect(img.decodePng(result!.bytes)!.hasPalette, isTrue);
     });
   });
 }

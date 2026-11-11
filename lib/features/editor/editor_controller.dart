@@ -183,11 +183,15 @@ class EditorController extends Notifier<EditorState> {
   /// 导出：从源字节流二次解码全图 → 编码 → 唤起保存面板写入（PRD 九.3 / 六.2）。
   ///
   /// [format] 须在 `EncodeService.exportableFormats` 内；[quality] 仅对 JPEG 生效；
-  /// [icoSizes] 仅对 ICO 生效，为空时取全部可生成尺寸。
+  /// [icoSizes] 仅对 ICO 生效，为空时取全部可生成尺寸；
+  /// [jpegChroma] / [pngLevel] / [pngPalette] 分别只对 JPEG / PNG 生效。
   Future<void> export({
     required ImageFormat format,
     required int quality,
     List<int> icoSizes = const [],
+    JpegChromaOption jpegChroma = JpegChromaOption.yuv420,
+    int pngLevel = 6,
+    bool pngPalette = false,
   }) async {
     final imported = state.imported;
     if (state.busy || !state.canEdit || imported == null) return;
@@ -212,6 +216,9 @@ class EditorController extends Notifier<EditorState> {
               crop: cropArea,
               cropCircle: cropCircle,
               resize: state.hasResize ? state.resize : null,
+              jpegChroma: jpegChroma,
+              pngLevel: pngLevel,
+              pngPalette: pngPalette,
             ),
           );
       if (encoded == null) {
