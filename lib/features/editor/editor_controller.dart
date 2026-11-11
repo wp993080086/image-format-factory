@@ -68,13 +68,22 @@ class EditorController extends Notifier<EditorState> {
   /// 探测校验 → 像素预检 → 解码预览 → 进入可编辑态。
   Future<void> _process(ImportResult result) async {
     // 内容与扩展名均无法识别 → E-IMG-002
-    if (result.format == null) {
+    final format = result.format;
+    if (format == null) {
       _fail(AppErrorCode.corruptedFile);
+      return;
+    }
+    // 能力矩阵之外的格式一律拒绝：拖拽导入可绕过选择器的扩展名过滤。
+    // 典型的是 SVG——文件头能探测出来，但当前没有光栅化能力（ADR-004 的
+    // flutter_svg 方案尚未接入）；TIFF/TGA/PPM 则按附录 #8 移出 MVP。
+    // 报「不支持该格式」而不是「文件已损坏」，否则用户会以为自己的图坏了。
+    if (!ref.read(capabilitiesProvider).canImport(format)) {
+      _fail(AppErrorCode.unsupportedFormat);
       return;
     }
     // 像素预检（PRD 九.3（2））：解码前仅读文件头取宽高，超限直接拒绝。
     // Dart 的 OOM 是进程级 crash、catch 不住，故必须在此前置拦截。
-    final dims = ImageHeaderProbe.probe(result.bytes, result.format!);
+    final dims = ImageHeaderProbe.probe(result.bytes, format);
     if (dims != null) {
       final maxPixels = ref.read(capabilitiesProvider).maxPixels;
       if (DecodePolicy.exceedsLimit(dims, maxPixels)) {

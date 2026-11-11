@@ -7,12 +7,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:pixel_forge/app/app.dart';
 import 'package:pixel_forge/app/app_info.dart';
 import 'package:pixel_forge/core/di/providers.dart';
+import 'package:pixel_forge/core/error/app_error.dart';
 import 'package:pixel_forge/core/image/decode_service.dart';
 import 'package:pixel_forge/core/image/encode_service.dart';
 import 'package:pixel_forge/core/image/image_format.dart';
 import 'package:pixel_forge/core/image/image_header_probe.dart';
 import 'package:pixel_forge/core/platform/app_platform.dart';
 import 'package:pixel_forge/core/platform/capabilities.dart';
+import 'package:pixel_forge/features/editor/editor_controller.dart';
 import 'package:pixel_forge/services/file/export_service.dart';
 import 'package:pixel_forge/services/file/import_service.dart';
 
@@ -514,5 +516,79 @@ void main() {
     expect(export.savedNames.single, endsWith('.txt'));
     expect(export.savedContent, contains('当前会话'));
     expect(find.textContaining('诊断日志已保存'), findsOneWidget);
+  });
+
+  // ---------- S8 全流程验收（PRD 十一、十五章） ----------
+
+  testWidgets('全流程：导入 → 裁剪 → 改尺寸 → 导出，一次编码携带全部参数', (tester) async {
+    final encode = _RecordingEncodeService();
+    await _bootHome(
+      tester,
+      size: const ImageDimensions(800, 600),
+      encodeService: encode,
+    );
+    await _importImage(tester);
+
+    // 1) 裁剪到 400×300：以原图中心为锚点，落点 x=200 y=150
+    await tester.tap(find.text('裁剪'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.widgetWithText(TextField, '宽（px）'), '400');
+    await tester.enterText(find.widgetWithText(TextField, '高（px）'), '300');
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('选区 x 200, y 150'), findsOneWidget);
+
+    // 2) 回首页进尺寸页，改为 200×150（比例锁默认开启，宽度联动高度）
+    // 中文界面下 pageBack() 找不到 'Back' 提示语，直接点 AppBar 返回键
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('尺寸与比例'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.widgetWithText(TextField, '宽（px）'), '200');
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pumpAndSettle();
+
+    // 3) 导出：裁剪 + 缩放必须在同一次编码请求内（PRD 五.6 一次编码）
+    await tester.tap(find.text('下一步：导出'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('导出 PNG'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('导出完成'), findsOneWidget);
+    final request = encode.lastRequest!;
+    expect(request.format, ImageFormat.png);
+    expect(request.crop?.x, 200);
+    expect(request.crop?.y, 150);
+    expect(request.crop?.width, 400);
+    expect(request.crop?.height, 300);
+    expect(request.resize?.width, 200);
+    expect(request.resize?.height, 150);
+  });
+
+  testWidgets('导入：能力矩阵之外的格式提示不支持而非文件损坏', (tester) async {
+    await _bootHome(tester);
+
+    // 拖拽路径可绕过选择器的扩展名过滤，SVG 能被探测但无光栅化能力
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(Scaffold).first),
+    );
+    await container
+        .read(editorControllerProvider.notifier)
+        .loadImport(
+          ImportResult(
+            fileName: 'a.svg',
+            bytes: Uint8List.fromList(utf8.encode('<svg></svg>')),
+            format: ImageFormat.svg,
+            isAnimated: false,
+            extensionMismatch: false,
+          ),
+        );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.textContaining(AppErrorCode.unsupportedFormat.code),
+      findsOneWidget,
+    );
+    expect(find.textContaining(AppErrorCode.corruptedFile.code), findsNothing);
   });
 }

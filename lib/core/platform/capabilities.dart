@@ -58,7 +58,7 @@ class PlatformCapabilities {
   static PlatformCapabilities of(AppTarget target) => switch (target) {
     AppTarget.windows => PlatformCapabilities(
       target: target,
-      importFormats: _fullImport,
+      importFormats: _mainstreamImport,
       exportFormats: {..._mainstreamExport, ImageFormat.ico},
       dragDropImport: true,
       pasteImport: false,
@@ -104,6 +104,12 @@ class PlatformCapabilities {
   };
 
   /// 主流格式全集（非小众，PRD 一.边界3）。
+  ///
+  /// **不含 TIFF / TGA / PPM**：附录 #8 已拍板移出 MVP，全端关闭
+  /// （`image` 包其实能解码，将来拉回只需把 [ImageFormat.isNiche] 加回本集合）。
+  /// **不含 SVG**：没有光栅化能力——`image` 无 SVG 解码器，ADR-004 允许的
+  /// `flutter_svg` + Engine 方案尚未接入。文件头能探测出 SVG 但解码不了，
+  /// 放进来只会让选择器列出打不开的文件（S8 一致性检查项）。
   static const _mainstreamImport = {
     ImageFormat.jpeg,
     ImageFormat.png,
@@ -111,16 +117,7 @@ class PlatformCapabilities {
     ImageFormat.webp,
     ImageFormat.gif,
     ImageFormat.apng,
-    ImageFormat.svg,
     ImageFormat.ico,
-  };
-
-  /// 全量导入（含小众格式），仅 Windows 放开。
-  static const _fullImport = {
-    ..._mainstreamImport,
-    ImageFormat.tiff,
-    ImageFormat.tga,
-    ImageFormat.ppm,
   };
 
   /// 主流导出格式。
