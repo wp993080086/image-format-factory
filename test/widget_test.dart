@@ -1,15 +1,18 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pixel_forge/app/app.dart';
 import 'package:pixel_forge/core/di/providers.dart';
 import 'package:pixel_forge/core/image/decode_service.dart';
+import 'package:pixel_forge/core/image/encode_service.dart';
 import 'package:pixel_forge/core/image/image_format.dart';
 import 'package:pixel_forge/core/image/image_header_probe.dart';
 import 'package:pixel_forge/core/platform/app_platform.dart';
 import 'package:pixel_forge/core/platform/capabilities.dart';
+import 'package:pixel_forge/services/file/export_service.dart';
 import 'package:pixel_forge/services/file/import_service.dart';
 
 /// 导入/解码替身：返回一张 4×4 的假图，避免测试依赖真实文件选择器与解码。
@@ -47,6 +50,33 @@ class _FakeDecodeService extends DecodeService {
   );
 }
 
+/// 编码替身：记录最后一次请求，供断言裁剪/缩放参数是否随导出链路带下去。
+class _RecordingEncodeService extends EncodeService {
+  EncodeRequest? lastRequest;
+
+  @override
+  Future<EncodeResult?> encode(EncodeRequest request) async {
+    lastRequest = request;
+    final resize = request.resize;
+    return EncodeResult(
+      bytes: _onePixelPng,
+      size: resize == null
+          ? const ImageDimensions(4, 4)
+          : ImageDimensions(resize.width, resize.height),
+      alphaFlattened: false,
+    );
+  }
+}
+
+/// 保存替身：不唤起系统弹窗，直接返回一个假路径。
+class _FakeExportService extends ExportService {
+  const _FakeExportService();
+
+  @override
+  Future<ExportResult?> save(ExportRequest request) async =>
+      const ExportResult(savedPath: r'C:\out\result.png');
+}
+
 /// 一张真实的 1×1 透明 PNG，供 `Image.memory` 正常解码（假字节会触发 codec 异常）。
 final Uint8List _onePixelPng = Uint8List.fromList(const [
   0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, //
@@ -65,6 +95,7 @@ Future<void> _bootHome(
   ImageDimensions size = const ImageDimensions(4, 4),
   bool hasSemiTransparent = false,
   Size viewSize = const Size(1000, 1400),
+  EncodeService? encodeService,
 }) async {
   // 裁剪页底部参数面板较高，默认 800×600 视口会把画布压到溢出
   tester.view.physicalSize = viewSize;
@@ -77,6 +108,9 @@ Future<void> _bootHome(
         decodeServiceProvider.overrideWithValue(
           _FakeDecodeService(size, hasSemiTransparent),
         ),
+        exportServiceProvider.overrideWithValue(const _FakeExportService()),
+        if (encodeService != null)
+          encodeServiceProvider.overrideWithValue(encodeService),
       ],
       child: const PixelForgeApp(),
     ),
@@ -333,5 +367,92 @@ void main() {
     expect(find.text('输出格式'), findsOneWidget);
     expect(find.textContaining('已调整为 200 × 150'), findsOneWidget);
     expect(find.text('还原原始尺寸'), findsOneWidget);
+  });
+
+  // ---------- S5 快捷键与无障碍（PRD 九.6） ----------
+
+  testWidgets('快捷键：Ctrl+O 触发导入', (tester) async {
+    await _bootHome(tester);
+
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyO);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pumpAndSettle();
+
+    // 导入成功后功能入口才可用：能进面板即说明导入已发生
+    await tester.tap(find.text('格式转换'));
+    await tester.pumpAndSettle();
+    expect(find.text('输出格式'), findsOneWidget);
+  });
+
+  testWidgets('快捷键：Esc 返回上一页', (tester) async {
+    await _bootHome(tester);
+    await _importImage(tester);
+    await tester.tap(find.text('格式转换'));
+    await tester.pumpAndSettle();
+    expect(find.text('输出格式'), findsOneWidget);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+
+    expect(find.text('像素工坊'), findsOneWidget);
+    expect(find.text('输出格式'), findsNothing);
+  });
+
+  testWidgets('快捷键：Ctrl+S 直接导出', (tester) async {
+    final encode = _RecordingEncodeService();
+    await _bootHome(tester, encodeService: encode);
+    await _importImage(tester);
+    await tester.tap(find.text('格式转换'));
+    await tester.pumpAndSettle();
+
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyS);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pumpAndSettle();
+
+    expect(find.text('导出完成'), findsOneWidget);
+    // 与导出按钮同一套参数：格式跟随源格式 PNG
+    expect(encode.lastRequest?.format, ImageFormat.png);
+  });
+
+  testWidgets('裁剪页：方向键微调选区，Shift 步长为 10', (tester) async {
+    await _bootHome(tester);
+    await _importImage(tester);
+    await tester.tap(find.text('裁剪'));
+    await tester.pumpAndSettle();
+
+    // 先缩到 2×2，默认居中于 (1,1)
+    await tester.enterText(find.widgetWithText(TextField, '宽（px）'), '2');
+    await tester.enterText(find.widgetWithText(TextField, '高（px）'), '2');
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('选区 x 1, y 1'), findsOneWidget);
+
+    // 点画布把键盘焦点从输入框收回到画布
+    await tester.tap(find.byKey(const ValueKey('cropCanvas')));
+    await tester.pumpAndSettle();
+
+    // Shift + 方向键：10px 步长，4×4 图内钳制到右边界 x = 4-2 = 2
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('选区 x 2, y 1'), findsOneWidget);
+
+    // 单按方向键：1px 步长
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('选区 x 2, y 2'), findsOneWidget);
+  });
+
+  testWidgets('裁剪页：画布提供无障碍选区描述', (tester) async {
+    await _bootHome(tester);
+    await _importImage(tester);
+    await tester.tap(find.text('裁剪'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('cropCanvas')), findsOneWidget);
+    expect(find.bySemanticsLabel('裁剪画布'), findsOneWidget);
   });
 }

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -114,7 +115,7 @@ class _ExportPageState extends ConsumerState<ExportPage> {
         EditorStage.detecting ||
         EditorStage.decoding ||
         EditorStage.exporting => _BusyView(state: state),
-        EditorStage.editable => _buildPanel(state),
+        EditorStage.editable => _withShortcuts(_buildPanel(state), state),
         EditorStage.done => _DoneView(
           savedPath: state.exportedPath,
           onContinue: () => _controller.continueEditing(),
@@ -195,9 +196,40 @@ class _ExportPageState extends ConsumerState<ExportPage> {
     }
   }
 
-  /// 按当前面板参数发起导出；ICO 需附带勾选的尺寸（PRD 一.4）。
-  void _startExport(EditorState state) {
+  /// Ctrl/Cmd+S 直接导出（PRD 九.6）。
+  ///
+  /// 面板内没有常驻输入焦点，所以挂一个 autofocus 的 [Focus]，
+  /// 否则刚进面板时按键无人接收。
+  Widget _withShortcuts(Widget child, EditorState state) {
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.keyS, control: true): () =>
+            _exportIfReady(state),
+        const SingleActivator(LogicalKeyboardKey.keyS, meta: true): () =>
+            _exportIfReady(state),
+      },
+      child: Focus(autofocus: true, child: child),
+    );
+  }
+
+  /// 快捷键入口：与导出按钮保持同样的可用性判断。
+  void _exportIfReady(EditorState state) {
     final target = _effectiveFormat(state, _allowedFormats);
+    final decoded = state.decoded;
+    if (target == ImageFormat.ico && decoded != null) {
+      // 原图小于最小图标尺寸时一个尺寸也生成不出来，直接忽略
+      if (_effectiveIcoSizes(
+        decoded.sourceSize.width,
+        decoded.sourceSize.height,
+      ).isEmpty) {
+        return;
+      }
+    }
+    _startExport(state);
+  }
+
+  /// 按当前面板参数发起导出；ICO 需附带勾选的尺寸（PRD 一.4）。
+  void _startExport(EditorState state) {    final target = _effectiveFormat(state, _allowedFormats);
     final decoded = state.decoded;
     final icoSizes = target == ImageFormat.ico && decoded != null
         ? (_effectiveIcoSizes(

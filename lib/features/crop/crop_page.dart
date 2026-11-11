@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../app/router.dart';
+import '../../app/shortcuts.dart';
 import '../../core/error/app_error.dart';
 import '../../core/image/crop_selection.dart';
 import '../../core/image/image_header_probe.dart';
@@ -85,6 +86,9 @@ class _CropEditorState extends ConsumerState<_CropEditor> {
   final _widthFocus = FocusNode();
   final _heightFocus = FocusNode();
 
+  /// 画布焦点：Tab 可移入，移入后方向键微调选区（PRD 九.6）。
+  final _canvasFocus = FocusNode(debugLabel: 'cropCanvas');
+
   EditorController get _controller =>
       ref.read(editorControllerProvider.notifier);
 
@@ -108,6 +112,7 @@ class _CropEditorState extends ConsumerState<_CropEditor> {
     _heightCtrl.dispose();
     _widthFocus.dispose();
     _heightFocus.dispose();
+    _canvasFocus.dispose();
     super.dispose();
   }
 
@@ -235,6 +240,8 @@ class _CropEditorState extends ConsumerState<_CropEditor> {
   // ---------- 手势 ----------
 
   void _onScaleStart(ScaleStartDetails d, Size box) {
+    // 点一下画布就把键盘焦点收回来，否则改过尺寸输入框后方向键会失灵
+    if (!_canvasFocus.hasFocus) _canvasFocus.requestFocus();
     _startScale = _scale;
     _startOffset = _offset;
     _startLocal = d.localFocalPoint;
@@ -336,6 +343,49 @@ class _CropEditorState extends ConsumerState<_CropEditor> {
     _offset = Offset.zero;
   });
 
+  /// 画布键盘操作（PRD 九.6）：
+  /// 方向键平移选区 1px，按住 Shift 为 10px；Ctrl/Cmd+0 缩放至适配。
+  ///
+  /// 只平移不改尺寸——键盘改尺寸需要一套额外的「选中手柄」语义，
+  /// 面板上已有像素输入框承担该职责，重复实现反而增加理解成本。
+  KeyEventResult _onCanvasKey(FocusNode node, KeyEvent event) {
+    if (!isKeyPress(event)) return KeyEventResult.ignored;
+    // 尺寸输入框聚焦时方向键归输入框（光标移动），不抢
+    if (_widthFocus.hasFocus || _heightFocus.hasFocus) {
+      return KeyEventResult.ignored;
+    }
+    final key = event.logicalKey;
+    if (isCommandPressed &&
+        (key == LogicalKeyboardKey.digit0 ||
+            key == LogicalKeyboardKey.numpad0)) {
+      _resetView();
+      return KeyEventResult.handled;
+    }
+    final selection = widget.state.crop;
+    if (selection == null) return KeyEventResult.ignored;
+    final step = HardwareKeyboard.instance.isShiftPressed ? 10.0 : 1.0;
+    final double dx;
+    final double dy;
+    if (key == LogicalKeyboardKey.arrowLeft) {
+      dx = -step;
+      dy = 0;
+    } else if (key == LogicalKeyboardKey.arrowRight) {
+      dx = step;
+      dy = 0;
+    } else if (key == LogicalKeyboardKey.arrowUp) {
+      dx = 0;
+      dy = -step;
+    } else if (key == LogicalKeyboardKey.arrowDown) {
+      dx = 0;
+      dy = step;
+    } else {
+      return KeyEventResult.ignored;
+    }
+    // 贴边时 moved 会钳制，这里不做额外判断
+    _controller.updateCrop(selection.moved(dx, dy, _sourceSize));
+    return KeyEventResult.handled;
+  }
+
   @override
   Widget build(BuildContext context) {
     final selection = widget.state.crop;
@@ -366,62 +416,76 @@ class _CropEditorState extends ConsumerState<_CropEditor> {
           (box.width - fit.width) / 2,
           (box.height - fit.height) / 2,
         );
-        return Listener(
-          onPointerSignal: (e) => _onPointerSignal(e, box),
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onScaleStart: (d) => _onScaleStart(d, box),
-            onScaleUpdate: (d) => _onScaleUpdate(d, box),
-            onScaleEnd: _onScaleEnd,
-            child: ClipRect(
-              child: Stack(
-                children: [
-                  Transform(
-                    transform: _viewMatrix(box),
-                    child: Stack(
-                      children: [
-                        Positioned(
-                          left: origin.dx,
-                          top: origin.dy,
-                          width: fit.width,
-                          height: fit.height,
-                          child: Image.memory(
-                            widget.state.decoded!.previewPng,
-                            fit: BoxFit.fill,
-                            filterQuality: FilterQuality.medium,
-                            gaplessPlayback: true,
-                          ),
-                        ),
-                        Positioned.fill(
-                          child: IgnorePointer(
-                            child: CustomPaint(
-                              painter: _SelectionPainter(
-                                selection: selection,
-                                shape: widget.state.cropShape,
-                                source: source,
-                                fit: fit,
-                                origin: origin,
-                                scale: _scale,
+        final area = selection.toArea();
+        return Focus(
+          key: const ValueKey('cropCanvas'),
+          focusNode: _canvasFocus,
+          autofocus: true,
+          onKeyEvent: _onCanvasKey,
+          // 无障碍：画布本身无文字，靠 label / value 让读屏用户知道当前选区
+          child: Semantics(
+            container: true,
+            label: '裁剪画布',
+            value: '选区 ${area.x}, ${area.y}, ${area.width} × ${area.height}',
+            hint: '方向键微调选区，按住 Shift 每次 10 像素',
+            child: Listener(
+              onPointerSignal: (e) => _onPointerSignal(e, box),
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onScaleStart: (d) => _onScaleStart(d, box),
+                onScaleUpdate: (d) => _onScaleUpdate(d, box),
+                onScaleEnd: _onScaleEnd,
+                child: ClipRect(
+                  child: Stack(
+                    children: [
+                      Transform(
+                        transform: _viewMatrix(box),
+                        child: Stack(
+                          children: [
+                            Positioned(
+                              left: origin.dx,
+                              top: origin.dy,
+                              width: fit.width,
+                              height: fit.height,
+                              child: Image.memory(
+                                widget.state.decoded!.previewPng,
+                                fit: BoxFit.fill,
+                                filterQuality: FilterQuality.medium,
+                                gaplessPlayback: true,
                               ),
+                            ),
+                            Positioned.fill(
+                              child: IgnorePointer(
+                                child: CustomPaint(
+                                  painter: _SelectionPainter(
+                                    selection: selection,
+                                    shape: widget.state.cropShape,
+                                    source: source,
+                                    fit: fit,
+                                    origin: origin,
+                                    scale: _scale,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (_scale > 1.01)
+                        Positioned(
+                          right: 8,
+                          bottom: 8,
+                          child: Tooltip(
+                            message: '缩放至适配（Ctrl+0）',
+                            child: IconButton.filledTonal(
+                              onPressed: _resetView,
+                              icon: const Icon(Icons.fit_screen, size: 18),
                             ),
                           ),
                         ),
-                      ],
-                    ),
+                    ],
                   ),
-                  if (_scale > 1.01)
-                    Positioned(
-                      right: 8,
-                      bottom: 8,
-                      child: Tooltip(
-                        message: '缩放至适配',
-                        child: IconButton.filledTonal(
-                          onPressed: _resetView,
-                          icon: const Icon(Icons.fit_screen, size: 18),
-                        ),
-                      ),
-                    ),
-                ],
+                ),
               ),
             ),
           ),
