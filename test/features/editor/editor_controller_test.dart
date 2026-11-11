@@ -9,6 +9,7 @@ import 'package:pixel_forge/core/image/decode_service.dart';
 import 'package:pixel_forge/core/image/encode_service.dart';
 import 'package:pixel_forge/core/image/image_format.dart';
 import 'package:pixel_forge/core/image/image_header_probe.dart';
+import 'package:pixel_forge/core/image/resize_geometry.dart';
 import 'package:pixel_forge/core/platform/app_platform.dart';
 import 'package:pixel_forge/core/platform/capabilities.dart';
 import 'package:pixel_forge/features/editor/editor_controller.dart';
@@ -282,6 +283,112 @@ void main() {
       controller.continueEditing();
 
       expect(controller.state.stage, EditorStage.editable);
+    });
+  });
+
+  group('尺寸与比例', () {
+    test('导入后没有生效中的尺寸变换', () async {
+      final (container, controller) = _make(_validResult);
+      addTearDown(container.dispose);
+      await controller.pickAndLoad();
+
+      expect(controller.state.resize, isNull);
+      expect(controller.state.hasResize, isFalse);
+    });
+
+    test('updateResize 写入目标尺寸并标记生效', () async {
+      final (container, controller) = _make(_validResult);
+      addTearDown(container.dispose);
+      await controller.pickAndLoad();
+
+      controller.updateResize(width: 50, height: 40);
+
+      expect(controller.state.resize?.width, 50);
+      expect(controller.state.resize?.height, 40);
+      expect(controller.state.hasResize, isTrue);
+    });
+
+    test('超过 4 倍放大被钳制并带回原因', () async {
+      final (container, controller) = _make(_validResult);
+      addTearDown(container.dispose);
+      await controller.pickAndLoad();
+
+      final clamp = controller.updateResize(width: 800, height: 400);
+
+      // 源 100×100，单边上限 400
+      expect(clamp?.edgeLimited, isTrue);
+      expect(controller.state.resize?.width, 400);
+      expect(controller.state.resize?.height, 400);
+    });
+
+    test('目标尺寸等于原图时不算生效', () async {
+      final (container, controller) = _make(_validResult);
+      addTearDown(container.dispose);
+      await controller.pickAndLoad();
+
+      controller.updateResize(width: 100, height: 100);
+
+      expect(controller.state.resize, isNotNull);
+      expect(controller.state.hasResize, isFalse);
+    });
+
+    test('resetResize 清空变换', () async {
+      final (container, controller) = _make(_validResult);
+      addTearDown(container.dispose);
+      await controller.pickAndLoad();
+      controller.updateResize(width: 50, height: 50);
+
+      controller.resetResize();
+
+      expect(controller.state.resize, isNull);
+      expect(controller.state.hasResize, isFalse);
+    });
+
+    test('重新导入后尺寸变换被重置', () async {
+      final (container, controller) = _make(_validResult);
+      addTearDown(container.dispose);
+      await controller.pickAndLoad();
+      controller.updateResize(width: 50, height: 50);
+
+      await controller.pickAndLoad();
+
+      expect(controller.state.resize, isNull);
+    });
+
+    test('导出时携带尺寸变换参数', () async {
+      EncodeRequest? captured;
+      final (container, controller) = _make(
+        _validResult,
+        onEncode: (request) => captured = request,
+      );
+      addTearDown(container.dispose);
+      await controller.pickAndLoad();
+      controller.updateResize(
+        width: 50,
+        height: 50,
+        mode: ResizeMode.contain,
+        backgroundArgb: 0xFFFFFFFF,
+      );
+
+      await controller.export(format: ImageFormat.png, quality: 85);
+
+      expect(captured?.resize?.width, 50);
+      expect(captured?.resize?.mode, ResizeMode.contain);
+      expect(captured?.resize?.backgroundArgb, 0xFFFFFFFF);
+    });
+
+    test('未调尺寸时导出不带 resize 参数', () async {
+      EncodeRequest? captured;
+      final (container, controller) = _make(
+        _validResult,
+        onEncode: (request) => captured = request,
+      );
+      addTearDown(container.dispose);
+      await controller.pickAndLoad();
+
+      await controller.export(format: ImageFormat.png, quality: 85);
+
+      expect(captured?.resize, isNull);
     });
   });
 

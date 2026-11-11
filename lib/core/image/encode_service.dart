@@ -10,6 +10,8 @@ import 'ico_frame_select.dart';
 import 'ico_packer.dart';
 import 'image_format.dart';
 import 'image_header_probe.dart';
+import 'resize_apply.dart';
+import 'resize_geometry.dart';
 
 /// 编码请求。
 class EncodeRequest {
@@ -20,6 +22,7 @@ class EncodeRequest {
     this.icoSizes = const [],
     this.crop,
     this.cropCircle = false,
+    this.resize,
   });
 
   /// 源文件字节流（会话期缓存，导出时据此二次解码全图，PRD 九.3 延迟渲染）。
@@ -40,6 +43,12 @@ class EncodeRequest {
 
   /// 是否按圆形遮罩输出（PRD 二.7：方形画布 + 圆外透明）。
   final bool cropCircle;
+
+  /// 尺寸与比例变换（PRD 三章）；null 表示保持原尺寸。
+  ///
+  /// 与 [crop] 一样在同一次解码内完成，先裁后缩，最后统一编码
+  /// （PRD 五.6 一次编码原则）。
+  final ResizeTarget? resize;
 }
 
 /// 编码结果。
@@ -91,12 +100,13 @@ class EncodeService {
         request.icoSizes,
         request.crop,
         request.cropCircle,
+        request.resize,
       ),
     );
   }
 }
 
-/// 子 Isolate 入口：解码全图 → 校正方向 → 裁剪 → 按需填底 → 编码。
+/// 子 Isolate 入口：解码全图 → 校正方向 → 裁剪 → 缩放 → 按需填底 → 编码。
 ///
 /// 注意：此函数在独立 Isolate 中运行，禁止引用任何 UI / 插件对象。
 EncodeResult? _encodeImage(
@@ -106,6 +116,7 @@ EncodeResult? _encodeImage(
   List<int> icoSizes,
   CropArea? crop,
   bool cropCircle,
+  ResizeTarget? resize,
 ) {
   final source = transferable.materialize().asUint8List();
   final decoded = img.decodeImage(source);
@@ -123,6 +134,11 @@ EncodeResult? _encodeImage(
   var work = oriented;
   if (crop != null && !crop.isEmpty) {
     work = applyCrop(oriented, crop, circle: cropCircle);
+  }
+  // 缩放在裁剪之后：先按选区取内容，再把内容缩到目标尺寸。
+  // 顺序反了会让「目标 200×150 + 裁剪」变成对缩放后的图再裁，坐标全错。
+  if (resize != null) {
+    work = applyResize(work, resize);
   }
 
   if (format == ImageFormat.ico) {

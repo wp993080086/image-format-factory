@@ -181,6 +181,25 @@ class _ExportPageState extends ConsumerState<ExportPage> {
             ),
           ),
         ],
+        // 尺寸变更同样要显式告知：用户可能先调尺寸再去裁剪，回来时已忘记
+        if (state.hasResize) ...[
+          const SizedBox(height: 8),
+          Card(
+            child: ListTile(
+              dense: true,
+              leading: const Icon(Icons.photo_size_select_large, size: 20),
+              title: Text(
+                '已调整为 ${state.resize!.width} × ${state.resize!.height}'
+                '（${state.resize!.mode.label}）',
+              ),
+              subtitle: const Text('导出内容按目标尺寸缩放，非原图分辨率'),
+              trailing: TextButton(
+                onPressed: _controller.resetResize,
+                child: const Text('还原原始尺寸'),
+              ),
+            ),
+          ),
+        ],
         const SizedBox(height: 16),
         Text('输出格式', style: Theme.of(context).textTheme.titleSmall),
         const SizedBox(height: 8),

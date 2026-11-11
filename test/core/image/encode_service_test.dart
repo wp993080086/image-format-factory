@@ -6,6 +6,7 @@ import 'package:pixel_forge/core/image/crop_selection.dart';
 import 'package:pixel_forge/core/image/encode_service.dart';
 import 'package:pixel_forge/core/image/ico_packer.dart';
 import 'package:pixel_forge/core/image/image_format.dart';
+import 'package:pixel_forge/core/image/resize_geometry.dart';
 
 /// 生成带全透明像素的 RGBA PNG（用于验证透明填底）。
 Uint8List _transparentPng(int w, int h) {
@@ -295,6 +296,52 @@ void main() {
       );
       expect(result!.size.width, 100);
       expect(result.size.height, 80);
+    });
+
+    test('带 resize 的请求按目标尺寸输出', () async {
+      final result = await service.encode(
+        EncodeRequest(
+          sourceBytes: _halves(),
+          format: ImageFormat.png,
+          resize: const ResizeTarget(width: 25, height: 20),
+        ),
+      );
+      expect(result!.size.width, 25);
+      expect(result.size.height, 20);
+      expect(img.decodePng(result.bytes)!.width, 25);
+    });
+
+    test('先裁后缩：裁剪作用于原图坐标，缩放作用于裁剪结果', () async {
+      // 源 100×80 左红右蓝；裁左半（0..49）后缩到 20×16，结果应全红。
+      // 若顺序反了（先缩后裁），裁到的会包含右半的蓝色。
+      final result = await service.encode(
+        EncodeRequest(
+          sourceBytes: _halves(),
+          format: ImageFormat.png,
+          crop: const CropArea(x: 0, y: 0, width: 50, height: 60),
+          resize: const ResizeTarget(width: 20, height: 16),
+        ),
+      );
+      final decoded = img.decodePng(result!.bytes)!;
+      expect(decoded.width, 20);
+      expect(decoded.height, 16);
+      final center = decoded.getPixel(10, 8);
+      expect(center.r, greaterThan(200));
+      expect(center.b, lessThan(60));
+    });
+
+    test('resize 与 JPEG 质量同一次编码生效', () async {
+      final result = await service.encode(
+        EncodeRequest(
+          sourceBytes: _halves(),
+          format: ImageFormat.jpeg,
+          quality: 50,
+          resize: const ResizeTarget(width: 40, height: 32),
+        ),
+      );
+      final decoded = img.decodeJpg(result!.bytes)!;
+      expect(decoded.width, 40);
+      expect(decoded.height, 32);
     });
   });
 }

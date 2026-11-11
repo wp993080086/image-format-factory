@@ -213,4 +213,67 @@ void main() {
     expect(find.textContaining('已裁剪'), findsOneWidget);
     expect(find.text('还原整图'), findsOneWidget);
   });
+
+  testWidgets('尺寸页：展示原图与目标尺寸，默认不缩放', (tester) async {
+    await _bootHome(tester, size: const ImageDimensions(400, 300));
+    await _importImage(tester);
+
+    await tester.tap(find.text('尺寸与比例'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('原图 400 × 300'), findsOneWidget);
+    expect(find.textContaining('目标 400 × 300'), findsOneWidget);
+    expect(find.text('下一步：导出'), findsOneWidget);
+  });
+
+  testWidgets('尺寸页：留白底色只在 contain 模式出现', (tester) async {
+    await _bootHome(tester, size: const ImageDimensions(400, 300));
+    await _importImage(tester);
+
+    await tester.tap(find.text('尺寸与比例'));
+    await tester.pumpAndSettle();
+
+    // 默认拉伸填充：不产生留白，因此没有底色选项
+    expect(find.text('透明'), findsNothing);
+
+    await tester.tap(find.text('留白填充'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('透明'), findsOneWidget);
+    expect(find.text('白色'), findsOneWidget);
+  });
+
+  testWidgets('尺寸页：超过 4 倍放大被钳制并提示', (tester) async {
+    await _bootHome(tester, size: const ImageDimensions(400, 300));
+    await _importImage(tester);
+
+    await tester.tap(find.text('尺寸与比例'));
+    await tester.pumpAndSettle();
+
+    // 400×300 的单边上限为 1600×1200
+    await tester.enterText(find.widgetWithText(TextField, '宽（px）'), '2000');
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('已达单边放大上限'), findsOneWidget);
+    expect(find.textContaining('目标 1600 × 1200'), findsOneWidget);
+  });
+
+  testWidgets('尺寸页：下一步进入导出面板并提示已调整', (tester) async {
+    await _bootHome(tester, size: const ImageDimensions(400, 300));
+    await _importImage(tester);
+
+    await tester.tap(find.text('尺寸与比例'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.widgetWithText(TextField, '宽（px）'), '200');
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('下一步：导出'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('输出格式'), findsOneWidget);
+    expect(find.textContaining('已调整为 200 × 150'), findsOneWidget);
+    expect(find.text('还原原始尺寸'), findsOneWidget);
+  });
 }

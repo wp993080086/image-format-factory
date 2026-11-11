@@ -2,6 +2,7 @@ import '../../services/file/import_service.dart';
 import '../../core/error/app_error.dart';
 import '../../core/image/crop_selection.dart';
 import '../../core/image/decode_service.dart';
+import '../../core/image/resize_geometry.dart';
 
 /// 功能页共用状态机的阶段（对应 PRD 九.5）。
 enum EditorStage {
@@ -55,6 +56,7 @@ class EditorState {
     this.crop,
     this.cropShape = CropShape.rectangle,
     this.cropAspect = CropAspect.free,
+    this.resize,
   });
 
   final EditorStage stage;
@@ -84,6 +86,17 @@ class EditorState {
 
   /// 比例预设，跨页保留以便返回裁剪页时恢复。
   final CropAspect cropAspect;
+
+  /// 尺寸与比例变换的目标；null 表示保持原尺寸（PRD 三章）。
+  final ResizeTarget? resize;
+
+  /// 是否有生效中的尺寸变换（目标尺寸与原图不同）。
+  bool get hasResize {
+    final target = resize;
+    final size = decoded?.sourceSize;
+    if (target == null || size == null) return false;
+    return target.differsFrom(size);
+  }
 
   /// 是否有生效中的裁剪（非全图矩形）。
   ///
@@ -116,8 +129,10 @@ class EditorState {
     CropSelection? crop,
     CropShape? cropShape,
     CropAspect? cropAspect,
+    ResizeTarget? resize,
     bool clearFailure = false,
     bool clearCrop = false,
+    bool clearResize = false,
   }) {
     return EditorState(
       stage: stage ?? this.stage,
@@ -130,6 +145,7 @@ class EditorState {
       crop: clearCrop ? null : (crop ?? this.crop),
       cropShape: cropShape ?? this.cropShape,
       cropAspect: cropAspect ?? this.cropAspect,
+      resize: clearResize ? null : (resize ?? this.resize),
     );
   }
 }

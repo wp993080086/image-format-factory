@@ -7,6 +7,7 @@ import '../../core/image/decode_policy.dart';
 import '../../core/image/encode_service.dart';
 import '../../core/image/image_format.dart';
 import '../../core/image/image_header_probe.dart';
+import '../../core/image/resize_geometry.dart';
 import '../../core/log/app_logger.dart';
 import '../../services/file/export_service.dart';
 import '../../services/file/import_service.dart';
@@ -76,6 +77,7 @@ class EditorController extends Notifier<EditorState> {
         crop: CropSelection.full(decoded.sourceSize),
         cropShape: CropShape.rectangle,
         cropAspect: CropAspect.free,
+        clearResize: true,
         clearFailure: true,
       );
     } catch (e, st) {
@@ -142,6 +144,42 @@ class EditorController extends Notifier<EditorState> {
     state = state.copyWith(crop: CropSelection.full(size));
   }
 
+  /// 更新尺寸与比例变换参数（PRD 三章）。
+  ///
+  /// 宽高按 [clampResizeTarget] 的双上限钳制后写入，返回值供 UI 提示
+  /// 「已限制为 …」；未导入或非可编辑态时返回 null。
+  ResizeClamp? updateResize({
+    int? width,
+    int? height,
+    ResizeMode? mode,
+    int? backgroundArgb,
+  }) {
+    final size = state.decoded?.sourceSize;
+    if (!state.canEdit || size == null) return null;
+    final current =
+        state.resize ?? ResizeTarget(width: size.width, height: size.height);
+    final clamp = clampResizeTarget(
+      size,
+      width ?? current.width,
+      height ?? current.height,
+    );
+    state = state.copyWith(
+      resize: current.copyWith(
+        width: clamp.width,
+        height: clamp.height,
+        mode: mode,
+        backgroundArgb: backgroundArgb,
+      ),
+    );
+    return clamp;
+  }
+
+  /// 还原原始尺寸：导出时按原图输出。
+  void resetResize() {
+    if (!state.canEdit) return;
+    state = state.copyWith(clearResize: true);
+  }
+
   /// 导出：从源字节流二次解码全图 → 编码 → 唤起保存面板写入（PRD 九.3 / 六.2）。
   ///
   /// [format] 须在 `EncodeService.exportableFormats` 内；[quality] 仅对 JPEG 生效；
@@ -173,6 +211,7 @@ class EditorController extends Notifier<EditorState> {
               icoSizes: icoSizes,
               crop: cropArea,
               cropCircle: cropCircle,
+              resize: state.hasResize ? state.resize : null,
             ),
           );
       if (encoded == null) {
