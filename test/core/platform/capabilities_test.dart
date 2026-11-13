@@ -102,6 +102,12 @@ void main() {
       expect(web.systemSavePanel, isFalse);
       expect(mini.systemSavePanel, isFalse);
     });
+
+    test('系统保存面板：Android 已落地 SAF，鸿蒙待 M3（ADR-007）', () {
+      expect(android.systemSavePanel, isTrue);
+      // 鸿蒙无 SAF 等价物，share_plus 通道尚未接入，能力位如实关闭
+      expect(harmony.systemSavePanel, isFalse);
+    });
   });
 
   group('像素上限（PRD 九.3）', () {
