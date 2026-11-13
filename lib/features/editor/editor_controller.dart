@@ -127,6 +127,26 @@ class EditorController extends Notifier<EditorState> {
   void updateCrop(CropSelection selection) {
     if (!state.canEdit) return;
     state = state.copyWith(crop: selection);
+    _reclampResizeAfterCrop();
+  }
+
+  /// 裁剪改变基准后，把已设的目标尺寸按新上限重新钳制。
+  ///
+  /// 不重算会留下「按旧基准合法、按新基准超限」的目标：先设 16000×12000
+  /// 再把选区裁到 300×300，导出时至多只能放大到 1200×1200，超出的部分
+  /// 既浪费内存又让「目标尺寸」名不副实。
+  void _reclampResizeAfterCrop() {
+    final target = state.resize;
+    if (target == null) return;
+    final clamp = clampResizeTarget(
+      state.resizeBase,
+      target.width,
+      target.height,
+    );
+    if (clamp.width == target.width && clamp.height == target.height) return;
+    state = state.copyWith(
+      resize: target.copyWith(width: clamp.width, height: clamp.height),
+    );
   }
 
   /// 切换选区形状。
@@ -147,6 +167,7 @@ class EditorController extends Notifier<EditorState> {
       cropAspect: aspect,
       crop: selection.withAspect(aspect, shape, size),
     );
+    _reclampResizeAfterCrop();
   }
 
   /// 切换比例预设；非法组合（圆形 + 非 1:1）直接忽略，UI 侧应已置灰。
@@ -159,6 +180,7 @@ class EditorController extends Notifier<EditorState> {
       cropAspect: aspect,
       crop: selection.withAspect(aspect, state.cropShape, size),
     );
+    _reclampResizeAfterCrop();
   }
 
   /// 按目标像素尺寸重建选区（PRD 二.3：原图像素，超限钳制，以当前中心为锚点）。
@@ -169,6 +191,7 @@ class EditorController extends Notifier<EditorState> {
     state = state.copyWith(
       crop: selection.withTargetSize(width, height, size, state.cropShape),
     );
+    _reclampResizeAfterCrop();
   }
 
   /// 选区还原为整图。
@@ -176,6 +199,7 @@ class EditorController extends Notifier<EditorState> {
     final size = state.decoded?.sourceSize;
     if (!state.canEdit || size == null) return;
     state = state.copyWith(crop: CropSelection.full(size));
+    _reclampResizeAfterCrop();
   }
 
   /// 更新尺寸与比例变换参数（PRD 三章）。
@@ -188,12 +212,12 @@ class EditorController extends Notifier<EditorState> {
     ResizeMode? mode,
     int? backgroundArgb,
   }) {
-    final size = state.decoded?.sourceSize;
-    if (!state.canEdit || size == null) return null;
+    final base = state.resizeBase;
+    if (!state.canEdit || base.width <= 0) return null;
     final current =
-        state.resize ?? ResizeTarget(width: size.width, height: size.height);
+        state.resize ?? ResizeTarget(width: base.width, height: base.height);
     final clamp = clampResizeTarget(
-      size,
+      base,
       width ?? current.width,
       height ?? current.height,
     );

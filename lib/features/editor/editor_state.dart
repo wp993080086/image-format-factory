@@ -2,6 +2,7 @@ import '../../services/file/import_service.dart';
 import '../../core/error/app_error.dart';
 import '../../core/image/crop_selection.dart';
 import '../../core/image/decode_service.dart';
+import '../../core/image/image_header_probe.dart';
 import '../../core/image/resize_geometry.dart';
 
 /// 功能页共用状态机的阶段（对应 PRD 九.5）。
@@ -90,12 +91,25 @@ class EditorState {
   /// 尺寸与比例变换的目标；null 表示保持原尺寸（PRD 三章）。
   final ResizeTarget? resize;
 
-  /// 是否有生效中的尺寸变换（目标尺寸与原图不同）。
+  /// 缩放的基准尺寸：裁剪生效后是选区落地尺寸，否则是原图尺寸。
+  ///
+  /// 导出管线是「先裁后缩」，缩放作用在裁剪结果上，所以锁定比例、默认目标
+  /// 与 4 倍放大上限都必须以此为准。若仍按原图算，裁成 1:1 后锁定会拿到
+  /// 原图的 4:3，输入宽 500 得到 500×375，导出时再把方形内容拉变形。
+  ImageDimensions get resizeBase {
+    final size = decoded?.sourceSize;
+    if (size == null) return const ImageDimensions(0, 0);
+    final selection = crop;
+    if (selection == null || !hasCrop) return size;
+    final area = selection.toArea();
+    return ImageDimensions(area.width, area.height);
+  }
+
+  /// 是否有生效中的尺寸变换（目标尺寸与缩放基准不同）。
   bool get hasResize {
     final target = resize;
-    final size = decoded?.sourceSize;
-    if (target == null || size == null) return false;
-    return target.differsFrom(size);
+    if (target == null || decoded == null) return false;
+    return target.differsFrom(resizeBase);
   }
 
   /// 是否有生效中的裁剪（非全图矩形）。

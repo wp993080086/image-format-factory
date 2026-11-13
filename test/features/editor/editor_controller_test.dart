@@ -431,6 +431,46 @@ void main() {
 
       expect(captured?.resize, isNull);
     });
+
+    test('裁剪后缩放基准改为选区尺寸，4 倍上限随之收紧', () async {
+      final (container, controller) = _make(_validResult);
+      addTearDown(container.dispose);
+      await controller.pickAndLoad();
+      controller.setCropTargetSize(50, 50);
+
+      expect(controller.state.resizeBase.width, 50);
+      expect(controller.state.resizeBase.height, 50);
+
+      // 原图 100×100 时上限是 400，裁剪到 50×50 后只剩 200
+      final clamp = controller.updateResize(width: 500, height: 500);
+      expect(clamp?.edgeLimited, isTrue);
+      expect(controller.state.resize?.width, 200);
+    });
+
+    test('裁剪后目标尺寸等于选区尺寸时不算生效', () async {
+      final (container, controller) = _make(_validResult);
+      addTearDown(container.dispose);
+      await controller.pickAndLoad();
+      controller.setCropTargetSize(50, 50);
+
+      controller.updateResize(width: 50, height: 50);
+
+      expect(controller.state.hasResize, isFalse);
+    });
+
+    test('裁剪变小后，已设的目标尺寸按新基准重新钳制', () async {
+      final (container, controller) = _make(_validResult);
+      addTearDown(container.dispose);
+      await controller.pickAndLoad();
+      // 原图 100×100，400 正好是 4 倍上限
+      controller.updateResize(width: 400, height: 400);
+      expect(controller.state.resize?.width, 400);
+
+      controller.setCropTargetSize(50, 50);
+
+      expect(controller.state.resize?.width, 200);
+      expect(controller.state.resize?.height, 200);
+    });
   });
 
   group('裁剪选区', () {

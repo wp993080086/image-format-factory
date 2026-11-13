@@ -592,4 +592,102 @@ void main() {
     );
     expect(find.textContaining(AppErrorCode.corruptedFile.code), findsNothing);
   });
+
+  testWidgets('尺寸页：锁定关闭再打开后，改宽仍联动高度', (tester) async {
+    await _bootHome(tester, size: const ImageDimensions(400, 300));
+    await _importImage(tester);
+    await tester.tap(find.text('尺寸与比例'));
+    await tester.pumpAndSettle();
+
+    String fieldText(String label) => tester
+        .widget<TextField>(find.widgetWithText(TextField, label))
+        .controller!
+        .text;
+
+    final widthField = find.widgetWithText(TextField, '宽（px）');
+    final lock = find.byIcon(Icons.link);
+
+    // 默认锁定（原图 4:3）：400 → 300
+    await tester.enterText(widthField, '200');
+    await tester.pumpAndSettle();
+    expect(fieldText('高（px）'), '150');
+
+    // 关掉锁定后改宽，高度不动
+    await tester.tap(lock);
+    await tester.pumpAndSettle();
+    await tester.enterText(widthField, '300');
+    await tester.pumpAndSettle();
+    expect(fieldText('高（px）'), '150');
+
+    // 重新打开锁定：高度立刻对齐原图比 4:3（300 → 225）
+    await tester.tap(lock);
+    await tester.pumpAndSettle();
+    expect(fieldText('高（px）'), '225');
+
+    // 之后改宽仍按锁定比例联动：400 → 300
+    await tester.enterText(widthField, '400');
+    await tester.pumpAndSettle();
+    expect(fieldText('高（px）'), '300');
+  });
+
+  testWidgets('尺寸页：裁剪后基准改为选区尺寸，锁定跟随裁剪比例', (tester) async {
+    await _bootHome(tester, size: const ImageDimensions(400, 300));
+    await _importImage(tester);
+
+    // 裁成 200×200（原图 400×300，自由比例）
+    await tester.tap(find.text('裁剪'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.widgetWithText(TextField, '宽（px）'), '200');
+    await tester.enterText(find.widgetWithText(TextField, '高（px）'), '200');
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('选区 x 100, y 50'), findsOneWidget);
+
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('尺寸与比例'));
+    await tester.pumpAndSettle();
+
+    String fieldText(String label) => tester
+        .widget<TextField>(find.widgetWithText(TextField, label))
+        .controller!
+        .text;
+
+    // 基准是选区尺寸而不是原图 400×300
+    expect(find.textContaining('裁剪后 200 × 200'), findsOneWidget);
+    expect(fieldText('宽（px）'), '200');
+    expect(fieldText('高（px）'), '200');
+
+    // 锁定比例取 1:1，改宽 100 → 高 100（若仍按原图 4:3 会是 75）
+    await tester.enterText(find.widgetWithText(TextField, '宽（px）'), '100');
+    await tester.pumpAndSettle();
+    expect(fieldText('高（px）'), '100');
+  });
+
+  testWidgets('尺寸页：重新打开锁定后，当前尺寸立即对齐锁定比例', (tester) async {
+    await _bootHome(tester, size: const ImageDimensions(400, 300));
+    await _importImage(tester);
+    await tester.tap(find.text('尺寸与比例'));
+    await tester.pumpAndSettle();
+
+    String fieldText(String label) => tester
+        .widget<TextField>(find.widgetWithText(TextField, label))
+        .controller!
+        .text;
+
+    final widthField = find.widgetWithText(TextField, '宽（px）');
+    final lock = find.byIcon(Icons.link);
+
+    // 解锁后把宽拉到 800，高留在 300（画面严重拉扁）
+    await tester.tap(lock);
+    await tester.pumpAndSettle();
+    await tester.enterText(widthField, '800');
+    await tester.pumpAndSettle();
+    expect(fieldText('高（px）'), '300');
+
+    // 重新打开锁定：应立刻按锁定比例把高补成 600，而不是等下次输入
+    await tester.tap(lock);
+    await tester.pumpAndSettle();
+    expect(fieldText('高（px）'), '600');
+  });
 }
