@@ -92,6 +92,7 @@ class _FakeExportService extends ExportService {
     required Uint8List bytes,
     required List<String> extensions,
     required String label,
+    List<String>? mimeTypes,
   }) async {
     savedNames.add(suggestedName);
     savedContent = utf8.decode(bytes);

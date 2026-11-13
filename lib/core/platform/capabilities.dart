@@ -67,14 +67,28 @@ class PlatformCapabilities {
       animatedReencode: true,
       maxPixels: 100 * 1000 * 1000,
     ),
-    AppTarget.harmony || AppTarget.android => PlatformCapabilities(
+    AppTarget.android => PlatformCapabilities(
       target: target,
       importFormats: _mainstreamImport,
       exportFormats: {..._mainstreamExport, ImageFormat.ico},
       dragDropImport: false,
       pasteImport: false,
       albumPickImport: false,
+      // 已落地：SAF ACTION_CREATE_DOCUMENT（ADR-007）
       systemSavePanel: true,
+      animatedReencode: true,
+      maxPixels: 32 * 1000 * 1000,
+    ),
+    AppTarget.harmony => PlatformCapabilities(
+      target: target,
+      importFormats: _mainstreamImport,
+      exportFormats: {..._mainstreamExport, ImageFormat.ico},
+      dragDropImport: false,
+      pasteImport: false,
+      albumPickImport: false,
+      // 未落地：鸿蒙无 SAF 等价物，ADR-007 定的 share_plus 通道尚未接入（M3）。
+      // 能力位如实写 false——不能重蹈 SVG 那次「三端标 ✅ 实际没有」的覆辙。
+      systemSavePanel: false,
       animatedReencode: true,
       maxPixels: 32 * 1000 * 1000,
     ),

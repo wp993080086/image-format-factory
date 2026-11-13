@@ -8,6 +8,7 @@ import '../../app/app_info.dart';
 import '../../core/di/providers.dart';
 import '../../core/log/app_logger.dart';
 import '../../core/platform/app_platform.dart';
+import '../../services/file/export_service.dart';
 
 /// 关于页（PRD 十三、十六章）：版本、隐私说明、开源许可、诊断日志导出。
 ///
@@ -53,11 +54,12 @@ class _AboutPageState extends ConsumerState<AboutPage> {
             bytes: Uint8List.fromList(utf8.encode(text)),
             extensions: const ['txt'],
             label: '文本文件',
+            mimeTypes: const ['text/plain'],
           );
       // 用户取消保存面板：什么都不做，不算失败
       if (result == null) return;
       messenger.showSnackBar(
-        SnackBar(content: Text('诊断日志已保存：${result.savedPath ?? '下载目录'}')),
+        SnackBar(content: Text('诊断日志已保存：${displaySavedPath(result.savedPath)}')),
       );
     } catch (e, st) {
       AppLogger.error('导出诊断日志失败', name: 'about', error: e, stackTrace: st);

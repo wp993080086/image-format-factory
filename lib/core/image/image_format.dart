@@ -56,6 +56,24 @@ extension ImageFormatInfo on ImageFormat {
     ImageFormat.ico => ['ico'],
   };
 
+  /// MIME 类型。
+  ///
+  /// Android 的 SAF（`ACTION_CREATE_DOCUMENT`）只认 MIME，不认扩展名，
+  /// 导出时用它填 `mimeTypesFilter`（ADR-007）。
+  /// APNG 与 PNG 同为 `image/png`：容器层看不出差别，也不需要看出。
+  String get mimeType => switch (this) {
+    ImageFormat.jpeg => 'image/jpeg',
+    ImageFormat.png || ImageFormat.apng => 'image/png',
+    ImageFormat.bmp => 'image/bmp',
+    ImageFormat.webp => 'image/webp',
+    ImageFormat.tiff => 'image/tiff',
+    ImageFormat.tga => 'image/x-tga',
+    ImageFormat.ppm => 'image/x-portable-pixmap',
+    ImageFormat.gif => 'image/gif',
+    ImageFormat.svg => 'image/svg+xml',
+    ImageFormat.ico => 'image/x-icon',
+  };
+
   /// 目标格式是否支持 Alpha 通道（对应 PRD「八.2 透明通道一致性」）。
   bool get supportsAlpha => switch (this) {
     ImageFormat.jpeg => false,

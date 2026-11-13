@@ -14,6 +14,7 @@ import '../../core/image/encode_service.dart';
 import '../../core/image/ico_packer.dart';
 import '../../core/image/image_format.dart';
 import '../../core/image/image_header_probe.dart';
+import '../../services/file/export_service.dart';
 import '../editor/editor_controller.dart';
 import '../editor/editor_state.dart';
 
@@ -713,7 +714,7 @@ class _DoneView extends StatelessWidget {
             if (savedPath != null) ...[
               const SizedBox(height: 8),
               Text(
-                savedPath!,
+                displaySavedPath(savedPath),
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.bodySmall,
               ),

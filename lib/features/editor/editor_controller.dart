@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/di/providers.dart';
 import '../../core/error/app_error.dart';
+import '../../core/error/export_error_mapper.dart';
 import '../../core/image/crop_selection.dart';
 import '../../core/image/decode_policy.dart';
 import '../../core/image/encode_service.dart';
@@ -286,9 +287,10 @@ class EditorController extends Notifier<EditorState> {
         exportedPath: result.savedPath,
       );
     } catch (e, st) {
-      // 磁盘满 / 无权限 / 路径非法等平台异常统一降级为 E-EXPORT-006（PRD 十六.2）
+      // 按异常类型归到 PRD 九.2 的细分错误码（磁盘满 / 只读 / 被占用 / 路径非法）。
+      // 归类不出来的才落到 E-EXPORT-006，那句话才真的成立。
       AppLogger.error('导出失败', name: _tag, error: e, stackTrace: st);
-      _fail(AppErrorCode.encodeFailed, error: e, stackTrace: st);
+      _fail(mapExportError(e), error: e, stackTrace: st);
     }
   }
 

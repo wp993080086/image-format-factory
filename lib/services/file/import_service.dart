@@ -53,16 +53,24 @@ class ImportService {
   /// TODO: Android/鸿蒙走系统文件选择器、Web 增加粘贴导入、
   /// 小程序改相册选择——当前统一走 file_selector。
   Future<ImportResult?> pickImage() async {
-    final group = XTypeGroup(
-      label: '图片文件',
-      extensions: _capabilities.importExtensions,
-    );
-    final file = await openFile(acceptedTypeGroups: [group]);
+    final file = await openFile(acceptedTypeGroups: [importTypeGroup()]);
     if (file == null) return null;
 
     final bytes = await file.readAsBytes();
     return buildResult(fileName: file.name, bytes: bytes);
   }
+
+  /// 文件选择器的类型过滤器。
+  ///
+  /// 同时给 extensions 与 mimeTypes：桌面端只认 extensions，Android 只认 MIME。
+  /// Android 上插件会把 extensions 经 `MimeTypeMap` 转 MIME，转不出来的扩展名
+  /// 只打一条 warning 就丢掉——`.ico` 在多数 ROM 上正属于这种，不显式给 MIME
+  /// 会让 ICO 文件在选择器里直接不可见。
+  XTypeGroup importTypeGroup() => XTypeGroup(
+    label: '图片文件',
+    extensions: _capabilities.importExtensions,
+    mimeTypes: [for (final f in _capabilities.importFormats) f.mimeType],
+  );
 
   /// 从磁盘路径读取（拖拽导入，PRD 六.1）。
   ///

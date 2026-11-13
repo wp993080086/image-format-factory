@@ -30,6 +30,8 @@ dependencies:
   desktop_drop: ^0.8.4
   flutter_localizations:
     sdk: flutter
+  # Android SAF 保存面板（仅 Android 启用，见 PRD 七.2 / ADR-007）
+  flutter_file_dialog: ^3.3.6
 
 dev_dependencies:
   flutter_test:
