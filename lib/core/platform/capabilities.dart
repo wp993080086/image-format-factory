@@ -38,6 +38,9 @@ class PlatformCapabilities {
   final bool systemSavePanel;
 
   /// 动图重编码（GIF/APNG 重新导出，高阶可选功能）。
+  ///
+  /// 全端 false：需求池 L-03 尚未实现，导入侧只取首帧，导出也只产静态图。
+  /// 曾经三端标 true 但无任何代码引用——与 SVG 标 ✅ 是同一类不实能力位。
   final bool animatedReencode;
 
   /// 像素上限（PRD 九.3 表）：超过则拒绝，不做降级。
@@ -64,7 +67,7 @@ class PlatformCapabilities {
       pasteImport: false,
       albumPickImport: false,
       systemSavePanel: true,
-      animatedReencode: true,
+      animatedReencode: false,
       maxPixels: 100 * 1000 * 1000,
     ),
     AppTarget.android => PlatformCapabilities(
@@ -76,7 +79,7 @@ class PlatformCapabilities {
       albumPickImport: false,
       // 已落地：SAF ACTION_CREATE_DOCUMENT（ADR-007）
       systemSavePanel: true,
-      animatedReencode: true,
+      animatedReencode: false,
       maxPixels: 32 * 1000 * 1000,
     ),
     AppTarget.harmony => PlatformCapabilities(
@@ -89,7 +92,7 @@ class PlatformCapabilities {
       // 未落地：鸿蒙无 SAF 等价物，ADR-007 定的 share_plus 通道尚未接入（M3）。
       // 能力位如实写 false——不能重蹈 SVG 那次「三端标 ✅ 实际没有」的覆辙。
       systemSavePanel: false,
-      animatedReencode: true,
+      animatedReencode: false,
       maxPixels: 32 * 1000 * 1000,
     ),
     AppTarget.web => PlatformCapabilities(

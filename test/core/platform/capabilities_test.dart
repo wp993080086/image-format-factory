@@ -108,6 +108,12 @@ void main() {
       // 鸿蒙无 SAF 等价物，share_plus 通道尚未接入，能力位如实关闭
       expect(harmony.systemSavePanel, isFalse);
     });
+
+    test('动图重编码全端关闭（L-03 未实现，导入只取首帧）', () {
+      for (final caps in [windows, android, harmony, web, mini]) {
+        expect(caps.animatedReencode, isFalse);
+      }
+    });
   });
 
   group('像素上限（PRD 九.3）', () {
