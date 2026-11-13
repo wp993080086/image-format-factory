@@ -12,6 +12,7 @@ import '../../core/image/resize_geometry.dart';
 import '../../core/log/app_logger.dart';
 import '../../services/file/export_service.dart';
 import '../../services/file/import_service.dart';
+import '../../services/image/heif_decoder.dart';
 import '../editor/editor_state.dart';
 
 /// 功能页状态机控制器（PRD 九.5）。
@@ -82,9 +83,28 @@ class EditorController extends Notifier<EditorState> {
       _fail(AppErrorCode.unsupportedFormat);
       return;
     }
+    // HEIF 家族（苹果 HEIC / 华为 HEIF）纯 Dart 解不了，先借平台能力转 PNG。
+    // 放在像素预检之前：HEIF 的宽高不在文件头里，平台侧会先读尺寸判定上限，
+    // 超限直接返回而不分配位图，避免 OOM 杀进程。
+    var bytes = result.bytes;
+    if (format.isHeifFamily) {
+      final heif = await HeifDecoder.decode(
+        bytes,
+        maxPixels: ref.read(capabilitiesProvider).maxPixels,
+      );
+      if (!heif.isSuccess) {
+        _fail(switch (heif.error) {
+          HeifDecodeError.pixelLimit => AppErrorCode.pixelLimitExceeded,
+          HeifDecodeError.unsupportedPlatform => AppErrorCode.unsupportedFormat,
+          _ => AppErrorCode.corruptedFile,
+        });
+        return;
+      }
+      bytes = heif.png!;
+    }
     // 像素预检（PRD 九.3（2））：解码前仅读文件头取宽高，超限直接拒绝。
     // Dart 的 OOM 是进程级 crash、catch 不住，故必须在此前置拦截。
-    final dims = ImageHeaderProbe.probe(result.bytes, format);
+    final dims = ImageHeaderProbe.probe(bytes, format);
     if (dims != null) {
       final maxPixels = ref.read(capabilitiesProvider).maxPixels;
       if (DecodePolicy.exceedsLimit(dims, maxPixels)) {
@@ -99,10 +119,11 @@ class EditorController extends Notifier<EditorState> {
       }
     }
     // 解码 + 生成预览图（PRD 九.3）：在子 Isolate 执行，UI 不阻塞。
+    // HEIF 已在上面转成 PNG，这里拿到的已是通用格式字节。
     state = state.copyWith(stage: EditorStage.decoding);
     final decoded = await ref
         .read(decodeServiceProvider)
-        .decodePreview(result.bytes);
+        .decodePreview(bytes);
     if (decoded == null) {
       // 头部可识别但解码失败 → 文件损坏
       _fail(AppErrorCode.corruptedFile);
@@ -262,12 +283,26 @@ class EditorController extends Notifier<EditorState> {
     // 全图矩形选区等价于不裁剪，省掉一次整图拷贝（PRD 二章注）
     final cropArea = state.hasCrop ? state.crop?.toArea() : null;
     final cropCircle = state.hasCrop && state.cropShape == CropShape.circle;
+    // HEIF 源在导入时已转过一次给预览；这里要的是全分辨率字节，得再转一次。
+    // 不在导入时缓存全图 PNG：移动端常驻一份 20MB+ 的中间图代价过高。
+    var sourceBytes = imported.bytes;
+    if (imported.format?.isHeifFamily ?? false) {
+      final heif = await HeifDecoder.decode(
+        sourceBytes,
+        maxPixels: ref.read(capabilitiesProvider).maxPixels,
+      );
+      if (!heif.isSuccess) {
+        _fail(AppErrorCode.encodeFailed);
+        return;
+      }
+      sourceBytes = heif.png!;
+    }
     try {
       final encoded = await ref
           .read(encodeServiceProvider)
           .encode(
             EncodeRequest(
-              sourceBytes: imported.bytes,
+              sourceBytes: sourceBytes,
               format: format,
               quality: quality,
               icoSizes: icoSizes,

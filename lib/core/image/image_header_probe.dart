@@ -36,6 +36,9 @@ class ImageHeaderProbe {
         ImageFormat.tiff => _probeTiff(bytes),
         // TGA / PPM / SVG 头部信息不足以稳定取尺寸，交由解码路径处理。
         ImageFormat.tga || ImageFormat.ppm || ImageFormat.svg => null,
+        // HEIF 的宽高在 ispe box 里，嵌套遍历收益不抵成本；解码时由平台侧
+        // 用 inJustDecodeBounds 先取尺寸再决定是否落盘（见 HeifDecoder）。
+        ImageFormat.heic || ImageFormat.avif => null,
       };
     } catch (_) {
       // 头部结构异常：视为无法解析，交由解码阶段判定（E-IMG-002）。

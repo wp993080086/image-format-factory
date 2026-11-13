@@ -26,7 +26,28 @@ void main() {
         ImageFormat.ico,
       };
       for (final caps in [windows, android, harmony, web, mini]) {
-        expect(caps.importFormats, mainstream, reason: caps.target.displayName);
+        expect(
+          caps.importFormats,
+          containsAll(mainstream),
+          reason: caps.target.displayName,
+        );
+      }
+    });
+
+    test('HEIC/HEIF 仅 Android 可导入（系统内置 HEVC 解码）', () {
+      expect(android.canImport(ImageFormat.heic), isTrue);
+      for (final caps in [windows, harmony, web, mini]) {
+        expect(
+          caps.canImport(ImageFormat.heic),
+          isFalse,
+          reason: caps.target.displayName,
+        );
+      }
+    });
+
+    test('AVIF 全端关闭（只做识别提示，不解码）', () {
+      for (final caps in [windows, android, harmony, web, mini]) {
+        expect(caps.canImport(ImageFormat.avif), isFalse);
       }
     });
 

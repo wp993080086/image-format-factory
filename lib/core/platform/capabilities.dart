@@ -72,7 +72,10 @@ class PlatformCapabilities {
     ),
     AppTarget.android => PlatformCapabilities(
       target: target,
-      importFormats: _mainstreamImport,
+      // HEIC/HEIF 走系统解码通道（Android 8.0+ 内置 HEVC 静态图解码），
+      // 其余端解不了 HEVC，能力位不开——宁可选择器里看不到，也不让用户
+      // 选到打不开的文件。
+      importFormats: {..._mainstreamImport, ImageFormat.heic},
       exportFormats: {..._mainstreamExport, ImageFormat.ico},
       dragDropImport: false,
       pasteImport: false,

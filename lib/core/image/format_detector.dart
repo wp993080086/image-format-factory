@@ -50,7 +50,7 @@ class ImageFormatDetector {
     if (_matchPpm(bytes)) return const DetectedFormat(format: ImageFormat.ppm);
     if (_matchTga(bytes)) return const DetectedFormat(format: ImageFormat.tga);
     if (_matchSvg(bytes)) return const DetectedFormat(format: ImageFormat.svg);
-    return null;
+    return _detectIsoBmff(bytes);
   }
 
   /// 是否为 ICO 容器。
@@ -151,6 +151,44 @@ class ImageFormatDetector {
   }
 
   // --- 细分探测 ---
+
+  /// ISO BMFF（`ftyp` 外壳）：按 brand 区分 HEIC 与 AVIF。
+  ///
+  /// 苹果 HEIC 与华为 HEIF 是同一个容器、同样 HEVC 编码；major brand 可能是
+  /// 通用的 `mif1`，真正表明编码的 brand 常在 compatible 列表里，因此整段扫。
+  /// 扫不到就返回 null——仍是「无法识别」，但正常情况下不会走到这一步。
+  static DetectedFormat? _detectIsoBmff(Uint8List b) {
+    if (b.length < 12) return null;
+    // 'ftyp'
+    if (b[4] != 0x66 || b[5] != 0x74 || b[6] != 0x79 || b[7] != 0x70) {
+      return null;
+    }
+    // box 长度 32 位大端；异常值（0 / 超出文件）按剩余长度处理
+    final declared = (b[0] << 24) | (b[1] << 16) | (b[2] << 8) | b[3];
+    final end = declared >= 12 && declared <= b.length ? declared : b.length;
+    for (var p = 8; p + 4 <= end; p += 4) {
+      final brand = String.fromCharCodes(b, p, p + 4);
+      if (_heifBrands.contains(brand)) {
+        return const DetectedFormat(format: ImageFormat.heic);
+      }
+      if (brand == 'avif' || brand == 'avis') {
+        return const DetectedFormat(format: ImageFormat.avif);
+      }
+    }
+    return null;
+  }
+
+  /// HEIF 家族的 brand：HEVC 编码标识 + 通用容器标识。
+  static const _heifBrands = {
+    'heic',
+    'heix',
+    'hevc',
+    'hevx',
+    'heim',
+    'heis',
+    'mif1',
+    'msf1',
+  };
 
   /// PNG 是否为 APNG：扫描 `acTL` chunk。
   static DetectedFormat _detectPng(Uint8List b) {

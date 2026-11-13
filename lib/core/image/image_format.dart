@@ -10,7 +10,15 @@ enum ImageFormat {
   gif,
   apng,
   svg,
-  ico;
+  ico,
+
+  /// HEIF 容器 + HEVC 编码：苹果 HEIC、华为 HEIF 都是它。
+  ///
+  /// 纯 Dart 无 HEVC 解码器，解码依赖平台能力（Android 8.0+ 系统内置）。
+  heic,
+
+  /// AVIF 容器（AV1 编码）。当前只做识别与提示，不解码。
+  avif;
 
   static ImageFormat? fromExtension(String ext) {
     final e = ext.toLowerCase().replaceAll('.', '');
@@ -34,6 +42,8 @@ extension ImageFormatInfo on ImageFormat {
     ImageFormat.apng => 'APNG',
     ImageFormat.svg => 'SVG',
     ImageFormat.ico => 'ICO',
+    ImageFormat.heic => 'HEIC',
+    ImageFormat.avif => 'AVIF',
   };
 
   /// 扩展名集合。
@@ -54,6 +64,8 @@ extension ImageFormatInfo on ImageFormat {
     ImageFormat.apng => const [],
     ImageFormat.svg => ['svg'],
     ImageFormat.ico => ['ico'],
+    ImageFormat.heic => ['heic', 'heif'],
+    ImageFormat.avif => ['avif'],
   };
 
   /// MIME 类型。
@@ -72,6 +84,8 @@ extension ImageFormatInfo on ImageFormat {
     ImageFormat.gif => 'image/gif',
     ImageFormat.svg => 'image/svg+xml',
     ImageFormat.ico => 'image/x-icon',
+    ImageFormat.heic => 'image/heic',
+    ImageFormat.avif => 'image/avif',
   };
 
   /// 目标格式是否支持 Alpha 通道（对应 PRD「八.2 透明通道一致性」）。
@@ -88,6 +102,11 @@ extension ImageFormatInfo on ImageFormat {
   bool get isVector => this == ImageFormat.svg;
 
   bool get isContainer => this == ImageFormat.ico;
+
+  /// 是否为 HEIF 家族容器（HEIC / AVIF）。
+  ///
+  /// 二者共用 ISO BMFF 外壳，解码却要分别走 HEVC 与 AV1，不能一把梭。
+  bool get isHeifFamily => this == ImageFormat.heic || this == ImageFormat.avif;
 
   /// 小众格式：部分端天然缺少解码能力（PRD 一.边界3）。
   bool get isNiche =>

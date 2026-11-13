@@ -182,4 +182,58 @@ void main() {
       expect(d?.format, ImageFormat.png);
     });
   });
+
+  group('ImageFormatDetector - ISO BMFF（HEIC / AVIF）', () {
+    test('major brand 为 heic → HEIC', () {
+      final d = ImageFormatDetector.detect(
+        _ftypBytes(const ['heic', 'mif1']),
+      );
+      expect(d?.format, ImageFormat.heic);
+    });
+
+    test('通用容器 mif1 + compatible 含 heic → HEIC（华为 HEIF 常见形态）', () {
+      final d = ImageFormatDetector.detect(
+        _ftypBytes(const ['mif1', 'heic', 'heix'], major: 'mif1'),
+      );
+      expect(d?.format, ImageFormat.heic);
+    });
+
+    test('major brand 为 avif → AVIF', () {
+      final d = ImageFormatDetector.detect(
+        _ftypBytes(const ['avif', 'mif1', 'miaf']),
+      );
+      expect(d?.format, ImageFormat.avif);
+    });
+
+    test('MP4 的 isom 不被误认成图片', () {
+      final d = ImageFormatDetector.detect(
+        _ftypBytes(const ['isom', 'iso2', 'mp41']),
+      );
+      expect(d, isNull);
+    });
+
+    test('不足 12 字节的 ftyp 头返回 null，不越界', () {
+      final d = ImageFormatDetector.detect(
+        Uint8List.fromList([0, 0, 0, 24, 0x66, 0x74, 0x79]),
+      );
+      expect(d, isNull);
+    });
+  });
+}
+
+/// 构造 ISO BMFF 的 `ftyp` box：`[size][ftyp][major][minor][compatible...]`。
+///
+/// [brands] 同时作为 compatible 列表写入；[major] 缺省取首项。
+Uint8List _ftypBytes(List<String> brands, {String? major}) {
+  final size = 16 + brands.length * 4;
+  return Uint8List.fromList([
+    (size >> 24) & 0xFF,
+    (size >> 16) & 0xFF,
+    (size >> 8) & 0xFF,
+    size & 0xFF,
+    ...'ftyp'.codeUnits,
+    ...(major ?? brands.first).codeUnits,
+    0, 0, 0, 0, // minor version
+    for (final b in brands) ...b.codeUnits,
+  ]);
 }
