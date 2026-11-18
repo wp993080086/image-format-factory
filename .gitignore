@@ -56,3 +56,6 @@ app.*.map.json
 !.agents/rules/
 .workbuddy/
 .temp/
+
+# 交付产物（APK 等），由本地构建生成，不入库
+/dist/
