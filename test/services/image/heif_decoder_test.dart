@@ -15,7 +15,7 @@ void main() {
 
   tearDown(() => messenger.setMockMethodCallHandler(channel, null));
 
-  test('非 Android 端直接判不支持，不触碰通道', () async {
+  test('非 Android/Windows 端直接判不支持，不触碰通道', () async {
     var called = false;
     messenger.setMockMethodCallHandler(channel, (call) async {
       called = true;
@@ -23,7 +23,6 @@ void main() {
     });
 
     for (final target in [
-      AppTarget.windows,
       AppTarget.harmony,
       AppTarget.web,
       AppTarget.wechatMini,
@@ -37,6 +36,25 @@ void main() {
       expect(r.error, HeifDecodeError.unsupportedPlatform);
     }
     expect(called, isFalse, reason: '不支持时不应发起平台调用');
+  });
+
+  test('Windows 端走 libheif，不走平台通道', () async {
+    var called = false;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      called = true;
+      return pngBytes;
+    });
+
+    final r = await HeifDecoder.decode(
+      heicBytes,
+      maxPixels: 32000000,
+      target: AppTarget.windows,
+    );
+
+    expect(called, isFalse, reason: 'Windows 走 FFI，不应发起平台调用');
+    // 测试进程旁没有随包分发的 heif.dll，解码必然失败而不是报「不支持」
+    expect(r.isSuccess, isFalse);
+    expect(r.error, HeifDecodeError.failed);
   });
 
   test('Android 端透传平台解码结果，并带上像素上限', () async {

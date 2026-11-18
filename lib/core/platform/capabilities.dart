@@ -61,8 +61,9 @@ class PlatformCapabilities {
   static PlatformCapabilities of(AppTarget target) => switch (target) {
     AppTarget.windows => PlatformCapabilities(
       target: target,
-      importFormats: _mainstreamImport,
-      exportFormats: {..._mainstreamExport, ImageFormat.ico},
+      // HEIC/HEIF 走 FFI 调随包分发的 libheif（Windows 不像 Android 有系统解码器）
+      importFormats: {..._mainstreamImport, ImageFormat.heic},
+      exportFormats: {..._mainstreamExport, ImageFormat.ico, ImageFormat.webp},
       dragDropImport: true,
       pasteImport: false,
       albumPickImport: false,
@@ -76,7 +77,8 @@ class PlatformCapabilities {
       // 其余端解不了 HEVC，能力位不开——宁可选择器里看不到，也不让用户
       // 选到打不开的文件。
       importFormats: {..._mainstreamImport, ImageFormat.heic},
-      exportFormats: {..._mainstreamExport, ImageFormat.ico},
+      // WebP 走系统 Bitmap.compress(WEBP)，零新增依赖
+      exportFormats: {..._mainstreamExport, ImageFormat.ico, ImageFormat.webp},
       dragDropImport: false,
       pasteImport: false,
       albumPickImport: false,
@@ -142,8 +144,9 @@ class PlatformCapabilities {
 
   /// 主流导出格式。
   ///
-  /// 不含 WebP：`image` 包只提供 webp 解码器、无编码器，导出能力全端移除
-  /// （PRD 一 / 四.5 / 十，决策见 PRD 十二 ADR-001）。
+  /// 不含 WebP：`image` 包只提供 webp 解码器、无编码器，纯 Dart 路线不通
+  /// （PRD 一 / 四.5 / 十，决策见 PRD 十二 ADR-001）。WebP 改为按端追加：
+  /// Windows 走 FFI 调 libwebp，Android 走系统 Bitmap.compress(WEBP)。
   static const _mainstreamExport = {
     ImageFormat.jpeg,
     ImageFormat.png,

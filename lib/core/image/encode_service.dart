@@ -1,9 +1,11 @@
 import 'dart:isolate';
 import 'dart:math' as math;
 import 'dart:typed_data';
+import 'dart:ui' show RootIsolateToken;
 
 import 'package:image/image.dart' as img;
 
+import '../../services/image/webp_encoder.dart';
 import 'alpha_scan.dart';
 import 'crop_apply.dart';
 import 'crop_selection.dart';
@@ -133,12 +135,13 @@ class EncodeService {
 
   /// 当前可导出的格式。
   ///
-  /// 不含 WebP：`image` 包无编码器（ADR-001），与端能力矩阵取交集后才呈现
-  /// 在导出面板。
+  /// WebP 走平台原生编码（Windows FFI / Android 系统编解码器），
+  /// `image` 包本身没有编码器（ADR-001）。
   static const exportableFormats = <ImageFormat>[
     ImageFormat.jpeg,
     ImageFormat.png,
     ImageFormat.bmp,
+    ImageFormat.webp,
     ImageFormat.ico,
   ];
 
@@ -149,8 +152,10 @@ class EncodeService {
   Future<EncodeResult?> encode(EncodeRequest request) {
     // 零拷贝传入子 Isolate（PRD 八.9）
     final transferable = TransferableTypedData.fromList([request.sourceBytes]);
+    // Android 的 WebP 编码要在子 Isolate 里发起平台消息，得带上根 Isolate 令牌
+    final token = _rootIsolateToken();
     return Isolate.run(
-      () => _encodeImage(
+      () async => _encodeImage(
         transferable,
         request.format,
         request.quality,
@@ -161,6 +166,7 @@ class EncodeService {
         request.jpegChroma,
         request.pngLevel,
         request.pngPalette,
+        token,
       ),
     );
   }
@@ -173,14 +179,24 @@ class EncodeService {
   /// ICO 是多尺寸打包，体积与单一像素数不构成比例关系，返回 null，
   /// 由 UI 隐藏预估（实际导出本身很快，无需预估）。
   Future<int?> estimate(EstimateRequest request) {
-    return Isolate.run(() => _estimateBytes(request));
+    final token = _rootIsolateToken();
+    return Isolate.run(() async => _estimateBytes(request, token));
+  }
+}
+
+/// 取根 Isolate 令牌；拿不到时返回 null（通道退回主 Isolate）。
+RootIsolateToken? _rootIsolateToken() {
+  try {
+    return RootIsolateToken.instance;
+  } catch (_) {
+    return null;
   }
 }
 
 /// 子 Isolate 入口：解码全图 → 校正方向 → 裁剪 → 缩放 → 按需填底 → 编码。
 ///
 /// 注意：此函数在独立 Isolate 中运行，禁止引用任何 UI / 插件对象。
-EncodeResult? _encodeImage(
+Future<EncodeResult?> _encodeImage(
   TransferableTypedData transferable,
   ImageFormat format,
   int quality,
@@ -191,7 +207,8 @@ EncodeResult? _encodeImage(
   JpegChromaOption jpegChroma,
   int pngLevel,
   bool pngPalette,
-) {
+  RootIsolateToken? token,
+) async {
   final source = transferable.materialize().asUint8List();
   final decoded = img.decodeImage(source);
   if (decoded == null) return null;
@@ -238,6 +255,23 @@ EncodeResult? _encodeImage(
     // 目标不支持 Alpha：透明区域填白底后合成（PRD 四.4 / 四.6）
     output = _flattenToWhite(work);
     alphaFlattened = true;
+  }
+
+  // WebP 没有纯 Dart 编码器，走平台原生能力（Windows FFI / Android 系统编解码器）
+  if (format == ImageFormat.webp) {
+    final result = await WebpEncoder.encode(
+      rgba: output.getBytes(order: img.ChannelOrder.rgba),
+      width: output.width,
+      height: output.height,
+      quality: quality.clamp(1, 100),
+      token: token,
+    );
+    if (!result.isSuccess) return null;
+    return EncodeResult(
+      bytes: result.bytes!,
+      size: ImageDimensions(output.width, output.height),
+      alphaFlattened: false,
+    );
   }
 
   final bytes = _encodeBytes(
@@ -297,7 +331,7 @@ Uint8List? _encodeBytes(
 }
 
 /// 子 Isolate 入口：估算体积（PRD 四.7）。
-int? _estimateBytes(EstimateRequest request) {
+Future<int?> _estimateBytes(EstimateRequest request, RootIsolateToken? token) async {
   if (request.format == ImageFormat.ico) return null;
   final decoded = img.decodeImage(request.previewPng);
   if (decoded == null) return null;
@@ -318,20 +352,35 @@ int? _estimateBytes(EstimateRequest request) {
   final prepared = !request.format.supportsAlpha && sample.hasAlpha
       ? _flattenToWhite(sample)
       : sample;
-  final bytes = _encodeBytes(
-    prepared,
-    request.format,
-    request.quality,
-    request.jpegChroma,
-    request.pngLevel,
-    request.pngPalette,
-  );
-  if (bytes == null) return null;
+
+  final int bytes;
+  if (request.format == ImageFormat.webp) {
+    final result = await WebpEncoder.encode(
+      rgba: prepared.getBytes(order: img.ChannelOrder.rgba),
+      width: prepared.width,
+      height: prepared.height,
+      quality: request.quality.clamp(1, 100),
+      token: token,
+    );
+    if (!result.isSuccess) return null;
+    bytes = result.bytes!.length;
+  } else {
+    final encoded = _encodeBytes(
+      prepared,
+      request.format,
+      request.quality,
+      request.jpegChroma,
+      request.pngLevel,
+      request.pngPalette,
+    );
+    if (encoded == null) return null;
+    bytes = encoded.length;
+  }
 
   final sampled = prepared.width * prepared.height;
   if (sampled <= 0) return null;
   final ratio = request.outputSize.pixels / sampled;
-  return math.max(1, (bytes.length * ratio).round());
+  return math.max(1, (bytes * ratio).round());
 }
 
 /// PNG8 调色板压缩（PRD 五.2）。

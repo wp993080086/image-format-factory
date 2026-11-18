@@ -87,6 +87,25 @@ if(PLUGIN_BUNDLED_LIBRARIES)
     COMPONENT Runtime)
 endif()
 
+# 原生编解码库：libwebp（WebP 编码）与 libheif（HEIC/HEIF 解码）。
+#
+# 纯 Dart 没有这两个编解码器（ADR-001 / ADR-009），Windows 端靠 FFI 直调；
+# DLL 必须与 exe 同目录，否则 FFI 的 DynamicLibrary.open 找不到。
+install(FILES
+  "${CMAKE_CURRENT_SOURCE_DIR}/native/bin/x64/webp.dll"
+  "${CMAKE_CURRENT_SOURCE_DIR}/native/bin/x64/libsharpyuv.dll"
+  "${CMAKE_CURRENT_SOURCE_DIR}/native/bin/x64/heif.dll"
+  DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
+  COMPONENT Runtime)
+
+# 原生库的许可全文：LGPL-3.0 要求分发二进制时附许可文本，随包放在 exe 同级。
+install(FILES
+  "${CMAKE_CURRENT_SOURCE_DIR}/native/licenses/libwebp-COPYING"
+  "${CMAKE_CURRENT_SOURCE_DIR}/native/licenses/libheif-COPYING"
+  "${CMAKE_CURRENT_SOURCE_DIR}/native/licenses/libde265-COPYING"
+  DESTINATION "${INSTALL_BUNDLE_LIB_DIR}/licenses"
+  COMPONENT Runtime)
+
 # Copy the native assets provided by the build.dart from all packages.
 set(NATIVE_ASSETS_DIR "${PROJECT_BUILD_DIR}native_assets/windows/")
 install(DIRECTORY "${NATIVE_ASSETS_DIR}"

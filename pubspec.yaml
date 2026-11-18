@@ -32,6 +32,8 @@ dependencies:
     sdk: flutter
   # Android SAF 保存面板（仅 Android 启用，见 PRD 七.2 / ADR-007）
   flutter_file_dialog: ^3.3.6
+  # Windows WebP 编码走 FFI 调 libwebp，需要内存分配辅助（calloc/malloc）
+  ffi: ^2.2.0
 
 dev_dependencies:
   flutter_test:
@@ -41,3 +43,6 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    # 随包分发的原生库许可全文（LGPL-3.0 要求分发时附许可文本）
+    - assets/licenses/

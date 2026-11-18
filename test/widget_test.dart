@@ -338,6 +338,21 @@ void main() {
     expect(find.textContaining('体积更小'), findsOneWidget);
   });
 
+  testWidgets('导出面板：WebP 显示质量滑块，无色度抽样', (tester) async {
+    await _bootHome(tester);
+    await _importImage(tester);
+
+    await tester.tap(find.text('格式转换'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('WebP'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('质量'), findsOneWidget);
+    expect(find.text('85'), findsOneWidget);
+    expect(find.text('色度抽样'), findsNothing);
+    expect(find.textContaining('WebP 质量参数与 JPEG 一致'), findsOneWidget);
+  });
+
   testWidgets('尺寸页：展示原图与目标尺寸，默认不缩放', (tester) async {
     await _bootHome(tester, size: const ImageDimensions(400, 300));
     await _importImage(tester);

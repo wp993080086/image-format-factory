@@ -248,6 +248,33 @@ class _ExportPageState extends ConsumerState<ExportPage> {
     );
   }
 
+  /// 质量滑块：JPEG 与 WebP 共用同一套参数语义（1–100）。
+  Widget _qualityControl() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Text('质量', style: Theme.of(context).textTheme.titleSmall),
+            const Spacer(),
+            Text('$_quality'),
+          ],
+        ),
+        Slider(
+          value: _quality.toDouble(),
+          min: 1,
+          max: 100,
+          divisions: 99,
+          label: '$_quality',
+          onChanged: (value) {
+            setState(() => _quality = value.round());
+            _scheduleEstimate();
+          },
+        ),
+      ],
+    );
+  }
+
   Widget _buildPanel(EditorState state) {
     // 首次渲染后立即预估一次；之后的参数变化走 300ms debounce
     if (!_estimateRequested) {
@@ -264,8 +291,10 @@ class _ExportPageState extends ConsumerState<ExportPage> {
         : const <int>{};
 
     final hints = <String>[
-      if (sourceFormat == ImageFormat.webp)
-        'WebP 暂不支持导出，已改为 ${target.displayName}（体积可能增大）',
+      if (sourceFormat == ImageFormat.webp &&
+          target != ImageFormat.webp &&
+          _chosenFormat == null)
+        '本端暂不支持导出 WebP，已改为 ${target.displayName}（体积可能增大）',
       if (!target.supportsAlpha && (sourceFormat?.supportsAlpha ?? false))
         '${target.displayName} 不支持透明通道，透明区域将填充为白色',
       if (state.hasCrop &&
@@ -352,24 +381,7 @@ class _ExportPageState extends ConsumerState<ExportPage> {
         ),
         if (target == ImageFormat.jpeg) ...[
           const SizedBox(height: 16),
-          Row(
-            children: [
-              Text('质量', style: Theme.of(context).textTheme.titleSmall),
-              const Spacer(),
-              Text('$_quality'),
-            ],
-          ),
-          Slider(
-            value: _quality.toDouble(),
-            min: 1,
-            max: 100,
-            divisions: 99,
-            label: '$_quality',
-            onChanged: (value) {
-              setState(() => _quality = value.round());
-              _scheduleEstimate();
-            },
-          ),
+          _qualityControl(),
           const SizedBox(height: 4),
           Text('色度抽样', style: Theme.of(context).textTheme.titleSmall),
           const SizedBox(height: 6),
@@ -389,6 +401,16 @@ class _ExportPageState extends ConsumerState<ExportPage> {
           const SizedBox(height: 4),
           Text(
             _jpegChroma.description,
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
+        if (target == ImageFormat.webp) ...[
+          const SizedBox(height: 16),
+          _qualityControl(),
+          const SizedBox(height: 4),
+          Text(
+            'WebP 质量参数与 JPEG 一致：1 体积最小，100 画质最好；'
+            '支持透明通道，同画质下通常比 JPEG 小',
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ],

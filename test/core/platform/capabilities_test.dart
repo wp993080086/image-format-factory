@@ -34,9 +34,11 @@ void main() {
       }
     });
 
-    test('HEIC/HEIF 仅 Android 可导入（系统内置 HEVC 解码）', () {
+    test('HEIC/HEIF 在 Android 与 Windows 可导入', () {
+      // Android：系统内置 HEVC 解码；Windows：随包分发 libheif
       expect(android.canImport(ImageFormat.heic), isTrue);
-      for (final caps in [windows, harmony, web, mini]) {
+      expect(windows.canImport(ImageFormat.heic), isTrue);
+      for (final caps in [harmony, web, mini]) {
         expect(
           caps.canImport(ImageFormat.heic),
           isFalse,
@@ -79,9 +81,16 @@ void main() {
   });
 
   group('导出（PRD 十章导出表）', () {
-    test('WebP 全端不可导出（ADR-001）', () {
-      for (final caps in [windows, android, harmony, web, mini]) {
-        expect(caps.canExport(ImageFormat.webp), isFalse);
+    test('WebP 在 Windows 与 Android 可导出，其余端关闭', () {
+      // Windows：FFI 调 libwebp；Android：系统 Bitmap.compress(WEBP)
+      expect(windows.canExport(ImageFormat.webp), isTrue);
+      expect(android.canExport(ImageFormat.webp), isTrue);
+      for (final caps in [harmony, web, mini]) {
+        expect(
+          caps.canExport(ImageFormat.webp),
+          isFalse,
+          reason: caps.target.displayName,
+        );
       }
     });
 
