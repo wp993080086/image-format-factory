@@ -224,6 +224,20 @@ void main() {
     expect(find.widgetWithText(FilledButton, '导出 ICO（5 个尺寸）'), findsOneWidget);
   });
 
+  testWidgets('导出面板：ICO 说明看图软件只显示一张是查看器行为', (tester) async {
+    await _bootHome(tester, size: const ImageDimensions(128, 128));
+    await _importImage(tester);
+
+    await tester.tap(find.text('格式转换'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('ICO'));
+    await tester.pumpAndSettle();
+
+    // 多尺寸 ICO 常被误解为导出失败，UI 需明确说明
+    expect(find.textContaining('看图软件打开 .ico 通常只显示其中一张'), findsOneWidget);
+    expect(find.textContaining('文件内已写入 5 个尺寸'), findsOneWidget);
+  });
+
   testWidgets('裁剪页：可编辑态展示预览图与原图尺寸', (tester) async {
     await _bootHome(tester);
     await _importImage(tester);

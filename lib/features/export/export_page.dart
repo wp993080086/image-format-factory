@@ -655,6 +655,16 @@ class _IcoSizeSection extends StatelessWidget {
         ),
         const SizedBox(height: 6),
         Text(note, style: Theme.of(context).textTheme.bodySmall),
+        // 多尺寸 ICO 用看图软件打开通常只显示一张——那是查看器的行为，
+        // 文件里确实写入了全部尺寸。不说明清楚会被当成导出失败。
+        if (selected.isNotEmpty) ...[
+          const SizedBox(height: 4),
+          Text(
+            '看图软件打开 .ico 通常只显示其中一张，这是查看器的行为；'
+            '文件内已写入 ${selected.length} 个尺寸。',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
       ],
     );
   }
