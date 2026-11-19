@@ -38,6 +38,7 @@ class BatchPipeline {
         colorAdjust: config.colorAdjust,
         watermark: config.watermark,
         annotations: config.annotations,
+        blur: config.blur,
       ),
     );
     if (result == null) return null;
@@ -62,6 +63,7 @@ class BatchPipeline {
               colorAdjust: config.colorAdjust,
               watermark: config.watermark,
               annotations: config.annotations,
+              blur: config.blur,
             ),
           );
           return r?.bytes ?? const <int>[];

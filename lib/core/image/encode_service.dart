@@ -9,6 +9,7 @@ import '../../services/image/avif_codec.dart';
 import '../../services/image/webp_encoder.dart';
 import 'alpha_scan.dart';
 import 'annotation.dart';
+import 'blur.dart';
 import 'color_adjust.dart';
 import 'crop_apply.dart';
 import 'crop_selection.dart';
@@ -54,6 +55,7 @@ class EncodeRequest {
     this.colorAdjust = const ColorAdjust(),
     this.watermark,
     this.annotations = const [],
+    this.blur = 0,
   });
 
   /// 源文件字节流（会话期缓存，导出时据此二次解码全图，PRD 九.3 延迟渲染）。
@@ -110,6 +112,12 @@ class EncodeRequest {
   ///
   /// 合成顺序固定在裁剪/缩放之后，避免几何变换拉伸线宽（PRD 一.7 实现要点）。
   final List<Annotation> annotations;
+
+  /// 整图模糊强度 0–100（v0.6），0 表示不模糊。
+  ///
+  /// 作用在几何变换之后、水印/标注之前：先糊底图，再叠水印与标注，
+  /// 保证文字/标注不被模糊掉。
+  final int blur;
 }
 
 /// 编码结果。
@@ -145,6 +153,7 @@ class EstimateRequest {
     this.colorAdjust = const ColorAdjust(),
     this.watermark,
     this.annotations = const [],
+    this.blur = 0,
   });
 
   final Uint8List previewPng;
@@ -160,6 +169,7 @@ class EstimateRequest {
   final ColorAdjust colorAdjust;
   final TextWatermark? watermark;
   final List<Annotation> annotations;
+  final int blur;
 }
 
 /// 图片编码服务：在独立 Isolate 中二次解码全图并编码为导出格式。
@@ -211,6 +221,7 @@ class EncodeService {
         request.colorAdjust,
         request.watermark,
         request.annotations,
+        request.blur,
         token,
       ),
     );
@@ -257,6 +268,7 @@ Future<EncodeResult?> _encodeImage(
   ColorAdjust colorAdjust,
   TextWatermark? watermark,
   List<Annotation> annotations,
+  int blur,
   RootIsolateToken? token,
 ) async {
   final source = transferable.materialize().asUint8List();
@@ -284,7 +296,7 @@ Future<EncodeResult?> _encodeImage(
 
   // 编辑能力在几何变换之后统一套用：调色 → 水印 → 标注。
   // 顺序固定，标注永远合成在最上层（PRD 一.7）。
-  work = _applyEdits(work, colorAdjust, watermark, annotations);
+  work = _applyEdits(work, colorAdjust, watermark, annotations, blur);
 
   // GIF 动图导出：从源字节重新解出全部帧，逐帧套用同一裁剪/缩放，保留
   // 每帧延时与循环次数后重新编码。帧内容不改（PRD v0.5 四.10）。
@@ -297,7 +309,7 @@ Future<EncodeResult?> _encodeImage(
         frame = applyCrop(frame, crop, circle: cropCircle);
       }
       if (resize != null) frame = applyResize(frame, resize);
-      frame = _applyEdits(frame, colorAdjust, watermark, annotations);
+      frame = _applyEdits(frame, colorAdjust, watermark, annotations, blur);
       if (!frame.hasAlpha) frame = frame.convert(numChannels: 4);
       frames.add(
         GifFrame(
@@ -402,9 +414,12 @@ img.Image _applyEdits(
   ColorAdjust colorAdjust,
   TextWatermark? watermark,
   List<Annotation> annotations,
+  int blur,
 ) {
   var work = image;
   work = applyColorAdjust(work, colorAdjust);
+  // v0.6 整图模糊：先糊底图，水印与标注在其上保持清晰。
+  work = applyGlobalBlur(work, blur);
   if (watermark != null) {
     work = applyTextWatermark(work, watermark);
   }
@@ -476,7 +491,7 @@ Future<int?> _estimateBytes(EstimateRequest request, RootIsolateToken? token) as
       ? _flattenToWhite(sample)
       : sample;
   // 编辑能力也计入预估，否则加了水印/调色后预估体积明显偏低
-  prepared = _applyEdits(prepared, request.colorAdjust, request.watermark, request.annotations);
+  prepared = _applyEdits(prepared, request.colorAdjust, request.watermark, request.annotations, request.blur);
 
   final int bytes;
   if (request.format == ImageFormat.webp) {

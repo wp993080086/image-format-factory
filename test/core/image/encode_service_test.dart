@@ -462,4 +462,31 @@ void main() {
       expect(img.decodePng(result!.bytes)!.hasPalette, isTrue);
     });
   });
+
+  group('整图模糊经编码管线生效（v0.6）', () {
+    const service = EncodeService();
+
+    test('blur=0 输出与不传一致', () async {
+      final source = _halves();
+      final plain = await service.encode(
+        EncodeRequest(sourceBytes: source, format: ImageFormat.png),
+      );
+      final zero = await service.encode(
+        EncodeRequest(sourceBytes: source, format: ImageFormat.png, blur: 0),
+      );
+      expect(zero!.bytes, plain!.bytes);
+    });
+
+    test('blur>0 把硬边界抹开（编码结果非原始红蓝）', () async {
+      final result = await service.encode(
+        EncodeRequest(sourceBytes: _halves(), format: ImageFormat.png, blur: 80),
+      );
+      final decoded = img.decodePng(result!.bytes)!;
+      // 边界 x=49/50 原本是纯红/纯蓝，模糊后应出现过渡色
+      final a = decoded.getPixel(49, 40);
+      final b = decoded.getPixel(50, 40);
+      final mixed = a.b > 10 || b.r > 10;
+      expect(mixed, isTrue, reason: '边界应出现红蓝过渡，而非纯红纯蓝');
+    });
+  });
 }

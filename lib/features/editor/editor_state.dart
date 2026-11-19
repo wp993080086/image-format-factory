@@ -1,6 +1,7 @@
 import '../../services/file/import_service.dart';
 import '../../core/error/app_error.dart';
 import '../../core/image/crop_selection.dart';
+import '../../core/image/annotation.dart';
 import '../../core/image/decode_service.dart';
 import '../../core/image/image_header_probe.dart';
 import '../../core/image/resize_geometry.dart';
@@ -58,6 +59,9 @@ class EditorState {
     this.cropShape = CropShape.rectangle,
     this.cropAspect = CropAspect.free,
     this.resize,
+    this.annotations = const [],
+    this.selectedAnnotation,
+    this.blur = 0,
   });
 
   final EditorStage stage;
@@ -90,6 +94,15 @@ class EditorState {
 
   /// 尺寸与比例变换的目标；null 表示保持原尺寸（PRD 三章）。
   final ResizeTarget? resize;
+
+  /// 标注列表（原图坐标系，矢量数据）。
+  final List<Annotation> annotations;
+
+  /// 当前选中的标注索引；null 表示未选中。
+  final int? selectedAnnotation;
+
+  /// 整图模糊强度 0–100（v0.6），随会话跨页保留，导出时生效。
+  final int blur;
 
   /// 缩放的基准尺寸：裁剪生效后是选区落地尺寸，否则是原图尺寸。
   ///
@@ -144,9 +157,14 @@ class EditorState {
     CropShape? cropShape,
     CropAspect? cropAspect,
     ResizeTarget? resize,
+    List<Annotation>? annotations,
+    int? selectedAnnotation,
+    int? blur,
     bool clearFailure = false,
     bool clearCrop = false,
     bool clearResize = false,
+    bool clearSelected = false,
+    bool clearBlur = false,
   }) {
     return EditorState(
       stage: stage ?? this.stage,
@@ -160,6 +178,10 @@ class EditorState {
       cropShape: cropShape ?? this.cropShape,
       cropAspect: cropAspect ?? this.cropAspect,
       resize: clearResize ? null : (resize ?? this.resize),
+      annotations: annotations ?? this.annotations,
+      selectedAnnotation:
+          clearSelected ? null : (selectedAnnotation ?? this.selectedAnnotation),
+      blur: clearBlur ? 0 : (blur ?? this.blur),
     );
   }
 }

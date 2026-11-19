@@ -4,6 +4,7 @@ import '../../core/di/providers.dart';
 import '../../core/error/app_error.dart';
 import '../../core/error/export_error_mapper.dart';
 import '../../core/image/crop_selection.dart';
+import '../../core/image/annotation.dart';
 import '../../core/image/decode_policy.dart';
 import '../../core/image/encode_service.dart';
 import '../../core/image/image_format.dart';
@@ -84,42 +85,38 @@ class EditorController extends Notifier<EditorState> {
       _fail(AppErrorCode.unsupportedFormat);
       return;
     }
-    // HEIF 家族（苹果 HEIC / 华为 HEIF）纯 Dart 解不了，先借平台能力转 PNG。
-    // 放在像素预检之前：HEIF 的宽高不在文件头里，平台侧会先读尺寸判定上限，
-    // 超限直接返回而不分配位图，避免 OOM 杀进程。
-    // AVIF 同为 ISO BMFF 容器，也走平台能力转 PNG（v0.5 / M3），
-    // 二者不会同时命中——探测器按 brand 二选一。
+    // HEIF 家族（苹果 HEIC / 华为 HEIF / AVIF）纯 Dart 解不了，先借平台能力转 PNG。
+    // 放在像素预检之前：平台侧先读尺寸判定上限，超限直接返回而不分配位图，
+    // 避免 OOM 杀进程。AVIF 的 Windows CLI 也用 --size-limit 做了同等前置拦截。
     var bytes = result.bytes;
-    if (format.isHeifFamily) {
-      if (format == ImageFormat.avif) {
-        final avif = await AvifCodec.decode(
-          bytes,
-          maxPixels: ref.read(capabilitiesProvider).maxPixels,
-        );
-        if (!avif.isSuccess) {
-          _fail(switch (avif.error) {
-            AvifDecodeError.pixelLimit => AppErrorCode.pixelLimitExceeded,
-            AvifDecodeError.unsupportedPlatform => AppErrorCode.unsupportedFormat,
-            _ => AppErrorCode.corruptedFile,
-          });
-          return;
-        }
-        bytes = avif.png!;
-      } else {
-        final heif = await HeifDecoder.decode(
-          bytes,
-          maxPixels: ref.read(capabilitiesProvider).maxPixels,
-        );
-        if (!heif.isSuccess) {
-          _fail(switch (heif.error) {
-            HeifDecodeError.pixelLimit => AppErrorCode.pixelLimitExceeded,
-            HeifDecodeError.unsupportedPlatform => AppErrorCode.unsupportedFormat,
-            _ => AppErrorCode.corruptedFile,
-          });
-          return;
-        }
-        bytes = heif.png!;
+    if (format == ImageFormat.heic) {
+      final heif = await HeifDecoder.decode(
+        bytes,
+        maxPixels: ref.read(capabilitiesProvider).maxPixels,
+      );
+      if (!heif.isSuccess) {
+        _fail(switch (heif.error) {
+          HeifDecodeError.pixelLimit => AppErrorCode.pixelLimitExceeded,
+          HeifDecodeError.unsupportedPlatform => AppErrorCode.unsupportedFormat,
+          _ => AppErrorCode.corruptedFile,
+        });
+        return;
       }
+      bytes = heif.png!;
+    } else if (format == ImageFormat.avif) {
+      final avif = await AvifCodec.decode(
+        bytes,
+        maxPixels: ref.read(capabilitiesProvider).maxPixels,
+      );
+      if (!avif.isSuccess) {
+        _fail(switch (avif.error!) {
+          AvifDecodeError.pixelLimit => AppErrorCode.pixelLimitExceeded,
+          AvifDecodeError.unsupportedPlatform => AppErrorCode.unsupportedFormat,
+          _ => AppErrorCode.corruptedFile,
+        });
+        return;
+      }
+      bytes = avif.png!;
     }
     // 像素预检（PRD 九.3（2））：解码前仅读文件头取宽高，超限直接拒绝。
     // Dart 的 OOM 是进程级 crash、catch 不住，故必须在此前置拦截。
@@ -156,12 +153,99 @@ class EditorController extends Notifier<EditorState> {
       cropShape: CropShape.rectangle,
       cropAspect: CropAspect.free,
       clearResize: true,
+      clearBlur: true,
       clearFailure: true,
     );
   }
 
   /// 重新选择（错误卡片出口）。
-  void reset() => state = const EditorState();
+  void reset() {
+    _undoStack.clear();
+    _redoStack.clear();
+    state = const EditorState();
+  }
+
+  // ---- 标注编辑 + 撤销/重做 ------------------------------------------------
+
+  /// 撤销栈：每项是一份提交前的完整标注列表快照。
+  final List<List<Annotation>> _undoStack = [];
+  final List<List<Annotation>> _redoStack = [];
+  static const _maxHistory = 50;
+
+  void _pushHistory() {
+    _undoStack.add(List<Annotation>.from(state.annotations));
+    if (_undoStack.length > _maxHistory) _undoStack.removeAt(0);
+    _redoStack.clear();
+  }
+
+  /// 新增一条标注（一次拖拽结束提交一次）。
+  void addAnnotation(Annotation a) {
+    if (!state.canEdit) return;
+    _pushHistory();
+    final index = state.annotations.length;
+    state = state.copyWith(
+      annotations: [...state.annotations, a],
+      selectedAnnotation: index,
+    );
+  }
+
+  /// 替换指定索引的标注（手柄调整提交）。
+  void updateAnnotation(int index, Annotation a) {
+    if (!state.canEdit || index < 0 || index >= state.annotations.length) return;
+    _pushHistory();
+    final next = List<Annotation>.from(state.annotations)..[index] = a;
+    state = state.copyWith(annotations: next);
+  }
+
+  /// 删除指定标注。
+  void removeAnnotation(int index) {
+    if (!state.canEdit || index < 0 || index >= state.annotations.length) return;
+    _pushHistory();
+    final next = List<Annotation>.from(state.annotations)..removeAt(index);
+    state = state.copyWith(
+      annotations: next,
+      clearSelected: true,
+    );
+  }
+
+  void selectAnnotation(int? index) =>
+      state = state.copyWith(
+        selectedAnnotation: index,
+        clearSelected: index == null,
+      );
+
+  void clearAnnotations() {
+    if (state.annotations.isEmpty) return;
+    _pushHistory();
+    state = state.copyWith(annotations: const [], clearSelected: true);
+  }
+
+  /// 更新整图模糊强度（0–100）；跨页保留，导出时生效（v0.6）。
+  void setBlur(int intensity) {
+    if (!state.canEdit) return;
+    state = state.copyWith(blur: intensity.clamp(0, 100));
+  }
+
+  bool get canUndo => _undoStack.isNotEmpty;
+  bool get canRedo => _redoStack.isNotEmpty;
+
+  void undo() {
+    if (_undoStack.isEmpty) return;
+    _redoStack.add(List<Annotation>.from(state.annotations));
+    state = state.copyWith(
+      annotations: _undoStack.removeLast(),
+      clearSelected: true,
+    );
+  }
+
+  void redo() {
+    if (_redoStack.isEmpty) return;
+    _undoStack.add(List<Annotation>.from(state.annotations));
+    state = state.copyWith(
+      annotations: _redoStack.removeLast(),
+      clearSelected: true,
+    );
+  }
 
   /// 更新选区：拖拽、手柄、目标尺寸输入共用同一出口。
   void updateCrop(CropSelection selection) {
@@ -302,20 +386,25 @@ class EditorController extends Notifier<EditorState> {
     // 全图矩形选区等价于不裁剪，省掉一次整图拷贝（PRD 二章注）
     final cropArea = state.hasCrop ? state.crop?.toArea() : null;
     final cropCircle = state.hasCrop && state.cropShape == CropShape.circle;
+
+    // 标注从原图坐标映射到裁剪+缩放后的输出坐标（PRD 一.7 合成顺序）
+    final sourceSize = state.decoded!.sourceSize;
+    final baseW = cropArea?.width ?? sourceSize.width;
+    final baseH = cropArea?.height ?? sourceSize.height;
+    final resizeTarget = state.hasResize ? state.resize : null;
+    final annotations = transformAnnotations(
+      state.annotations,
+      cropX: cropArea?.x ?? 0,
+      cropY: cropArea?.y ?? 0,
+      cropW: baseW,
+      cropH: baseH,
+      outW: resizeTarget?.width ?? baseW,
+      outH: resizeTarget?.height ?? baseH,
+    );
     // HEIF 源在导入时已转过一次给预览；这里要的是全分辨率字节，得再转一次。
     // 不在导入时缓存全图 PNG：移动端常驻一份 20MB+ 的中间图代价过高。
     var sourceBytes = imported.bytes;
-    if (imported.format == ImageFormat.avif) {
-      final avif = await AvifCodec.decode(
-        sourceBytes,
-        maxPixels: ref.read(capabilitiesProvider).maxPixels,
-      );
-      if (!avif.isSuccess) {
-        _fail(AppErrorCode.encodeFailed);
-        return;
-      }
-      sourceBytes = avif.png!;
-    } else if (imported.format?.isHeifFamily ?? false) {
+    if (imported.format == ImageFormat.heic) {
       final heif = await HeifDecoder.decode(
         sourceBytes,
         maxPixels: ref.read(capabilitiesProvider).maxPixels,
@@ -337,10 +426,12 @@ class EditorController extends Notifier<EditorState> {
               icoSizes: icoSizes,
               crop: cropArea,
               cropCircle: cropCircle,
-              resize: state.hasResize ? state.resize : null,
+              resize: resizeTarget,
               jpegChroma: jpegChroma,
               pngLevel: pngLevel,
               pngPalette: pngPalette,
+              annotations: annotations,
+              blur: state.blur,
             ),
           );
       if (encoded == null) {

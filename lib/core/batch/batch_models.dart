@@ -25,6 +25,7 @@ class BatchConfig {
     this.colorAdjust = const ColorAdjust(),
     this.watermark,
     this.annotations = const [],
+    this.blur = 0,
     this.targetKb,
   });
 
@@ -49,6 +50,7 @@ class BatchConfig {
   final ColorAdjust colorAdjust;
   final TextWatermark? watermark;
   final List<Annotation> annotations;
+  final int blur;
 
   /// 按目标体积压缩的目标 KB；null 表示按质量参数直接导出。
   final int? targetKb;
@@ -68,6 +70,7 @@ class BatchConfig {
         colorAdjust: colorAdjust,
         watermark: watermark,
         annotations: annotations,
+        blur: blur,
         targetKb: targetKb,
       );
 
@@ -83,6 +86,7 @@ class BatchConfig {
     TextWatermark? watermark,
     bool clearWatermark = false,
     List<Annotation>? annotations,
+    int? blur,
     int? targetKb,
     bool clearTargetKb = false,
   }) {
@@ -101,6 +105,7 @@ class BatchConfig {
       colorAdjust: colorAdjust ?? this.colorAdjust,
       watermark: clearWatermark ? null : (watermark ?? this.watermark),
       annotations: annotations ?? this.annotations,
+      blur: blur ?? this.blur,
       targetKb: clearTargetKb ? null : (targetKb ?? this.targetKb),
     );
   }
