@@ -89,6 +89,18 @@ class _HomePageState extends ConsumerState<HomePage> {
                     ref.read(editorControllerProvider.notifier).pickAndLoad(),
               ),
               const SizedBox(height: 16),
+              // v0.5 / M3：统一批量入口。新旧流程并存，旧单图入口保留为别名。
+              Card(
+                color: Theme.of(context).colorScheme.primaryContainer,
+                child: ListTile(
+                  leading: const Icon(Icons.auto_awesome_mosaic_outlined),
+                  title: const Text('批量处理（新）'),
+                  subtitle: const Text('多图一次配置：格式/调色/水印/标注，可导出动图'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => context.push(AppRoutes.pipeline),
+                ),
+              ),
+              const SizedBox(height: 16),
               Text('功能', style: Theme.of(context).textTheme.titleMedium),
               const SizedBox(height: 8),
               // 已成功导入且不在「中」态即可进入功能页（含导出完成后的 done 态，

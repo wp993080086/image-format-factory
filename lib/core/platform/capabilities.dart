@@ -62,8 +62,16 @@ class PlatformCapabilities {
     AppTarget.windows => PlatformCapabilities(
       target: target,
       // HEIC/HEIF 走 FFI 调随包分发的 libheif（Windows 不像 Android 有系统解码器）
-      importFormats: {..._mainstreamImport, ImageFormat.heic},
-      exportFormats: {..._mainstreamExport, ImageFormat.ico, ImageFormat.webp},
+      // v0.5/M3：加入 TIFF 双向、GIF 动图导出。AVIF 编解码库未随包分发前不开放
+      // （能力位如实，见 AvifCodec.isSupportedFor），待 libavif.dll 就位再放开。
+      importFormats: {..._mainstreamImport, ImageFormat.heic, ImageFormat.tiff},
+      exportFormats: {
+        ..._mainstreamExport,
+        ImageFormat.ico,
+        ImageFormat.webp,
+        ImageFormat.tiff,
+        ImageFormat.gif,
+      },
       dragDropImport: true,
       pasteImport: false,
       albumPickImport: false,
@@ -76,9 +84,15 @@ class PlatformCapabilities {
       // HEIC/HEIF 走系统解码通道（Android 8.0+ 内置 HEVC 静态图解码），
       // 其余端解不了 HEVC，能力位不开——宁可选择器里看不到，也不让用户
       // 选到打不开的文件。
-      importFormats: {..._mainstreamImport, ImageFormat.heic},
-      // WebP 走系统 Bitmap.compress(WEBP)，零新增依赖
-      exportFormats: {..._mainstreamExport, ImageFormat.ico, ImageFormat.webp},
+      importFormats: {..._mainstreamImport, ImageFormat.heic, ImageFormat.tiff},
+      // WebP 走系统 Bitmap.compress(WEBP)，零新增依赖；TIFF/GIF 纯 Dart
+      exportFormats: {
+        ..._mainstreamExport,
+        ImageFormat.ico,
+        ImageFormat.webp,
+        ImageFormat.tiff,
+        ImageFormat.gif,
+      },
       dragDropImport: false,
       pasteImport: false,
       albumPickImport: false,
@@ -127,8 +141,9 @@ class PlatformCapabilities {
 
   /// 主流格式全集（非小众，PRD 一.边界3）。
   ///
-  /// **不含 TIFF / TGA / PPM**：附录 #8 已拍板移出 MVP，全端关闭
-  /// （`image` 包其实能解码，将来拉回只需把 [ImageFormat.isNiche] 加回本集合）。
+  /// v0.5 / M3：TIFF 从需求池拉回（附录 #8 结论随优先级调整作废），
+  /// `image` 包已内置 TIFF 解码器，纯 Dart 可读。`isNiche` 语义保留用于
+  /// UI 排序，但能力位不再据此关闭。
   /// **不含 SVG**：没有光栅化能力——`image` 无 SVG 解码器，ADR-004 允许的
   /// `flutter_svg` + Engine 方案尚未接入。文件头能探测出 SVG 但解码不了，
   /// 放进来只会让选择器列出打不开的文件（S8 一致性检查项）。

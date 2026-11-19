@@ -12,6 +12,7 @@ import '../../core/image/resize_geometry.dart';
 import '../../core/log/app_logger.dart';
 import '../../services/file/export_service.dart';
 import '../../services/file/import_service.dart';
+import '../../services/image/avif_codec.dart';
 import '../../services/image/heif_decoder.dart';
 import '../editor/editor_state.dart';
 
@@ -86,21 +87,39 @@ class EditorController extends Notifier<EditorState> {
     // HEIF 家族（苹果 HEIC / 华为 HEIF）纯 Dart 解不了，先借平台能力转 PNG。
     // 放在像素预检之前：HEIF 的宽高不在文件头里，平台侧会先读尺寸判定上限，
     // 超限直接返回而不分配位图，避免 OOM 杀进程。
+    // AVIF 同为 ISO BMFF 容器，也走平台能力转 PNG（v0.5 / M3），
+    // 二者不会同时命中——探测器按 brand 二选一。
     var bytes = result.bytes;
     if (format.isHeifFamily) {
-      final heif = await HeifDecoder.decode(
-        bytes,
-        maxPixels: ref.read(capabilitiesProvider).maxPixels,
-      );
-      if (!heif.isSuccess) {
-        _fail(switch (heif.error) {
-          HeifDecodeError.pixelLimit => AppErrorCode.pixelLimitExceeded,
-          HeifDecodeError.unsupportedPlatform => AppErrorCode.unsupportedFormat,
-          _ => AppErrorCode.corruptedFile,
-        });
-        return;
+      if (format == ImageFormat.avif) {
+        final avif = await AvifCodec.decode(
+          bytes,
+          maxPixels: ref.read(capabilitiesProvider).maxPixels,
+        );
+        if (!avif.isSuccess) {
+          _fail(switch (avif.error) {
+            AvifDecodeError.pixelLimit => AppErrorCode.pixelLimitExceeded,
+            AvifDecodeError.unsupportedPlatform => AppErrorCode.unsupportedFormat,
+            _ => AppErrorCode.corruptedFile,
+          });
+          return;
+        }
+        bytes = avif.png!;
+      } else {
+        final heif = await HeifDecoder.decode(
+          bytes,
+          maxPixels: ref.read(capabilitiesProvider).maxPixels,
+        );
+        if (!heif.isSuccess) {
+          _fail(switch (heif.error) {
+            HeifDecodeError.pixelLimit => AppErrorCode.pixelLimitExceeded,
+            HeifDecodeError.unsupportedPlatform => AppErrorCode.unsupportedFormat,
+            _ => AppErrorCode.corruptedFile,
+          });
+          return;
+        }
+        bytes = heif.png!;
       }
-      bytes = heif.png!;
     }
     // 像素预检（PRD 九.3（2））：解码前仅读文件头取宽高，超限直接拒绝。
     // Dart 的 OOM 是进程级 crash、catch 不住，故必须在此前置拦截。
@@ -286,7 +305,17 @@ class EditorController extends Notifier<EditorState> {
     // HEIF 源在导入时已转过一次给预览；这里要的是全分辨率字节，得再转一次。
     // 不在导入时缓存全图 PNG：移动端常驻一份 20MB+ 的中间图代价过高。
     var sourceBytes = imported.bytes;
-    if (imported.format?.isHeifFamily ?? false) {
+    if (imported.format == ImageFormat.avif) {
+      final avif = await AvifCodec.decode(
+        sourceBytes,
+        maxPixels: ref.read(capabilitiesProvider).maxPixels,
+      );
+      if (!avif.isSuccess) {
+        _fail(AppErrorCode.encodeFailed);
+        return;
+      }
+      sourceBytes = avif.png!;
+    } else if (imported.format?.isHeifFamily ?? false) {
       final heif = await HeifDecoder.decode(
         sourceBytes,
         maxPixels: ref.read(capabilitiesProvider).maxPixels,

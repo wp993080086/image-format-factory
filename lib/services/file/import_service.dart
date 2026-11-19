@@ -60,6 +60,19 @@ class ImportService {
     return buildResult(fileName: file.name, bytes: bytes);
   }
 
+  /// 批量选图（v0.5 / M3）：一次选多张，用户取消返回空列表。
+  ///
+  /// 与 [pickImage] 共用同一套类型过滤与内容探测，单图是 N=1 的特例。
+  Future<List<ImportResult>> pickImages() async {
+    final files = await openFiles(acceptedTypeGroups: [importTypeGroup()]);
+    final result = <ImportResult>[];
+    for (final file in files) {
+      final bytes = await file.readAsBytes();
+      result.add(buildResult(fileName: file.name, bytes: bytes));
+    }
+    return result;
+  }
+
   /// 文件选择器的类型过滤器。
   ///
   /// 同时给 extensions 与 mimeTypes：桌面端只认 extensions，Android 只认 MIME。

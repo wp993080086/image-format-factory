@@ -5,11 +5,16 @@ import 'dart:ui' show RootIsolateToken;
 
 import 'package:image/image.dart' as img;
 
+import '../../services/image/avif_codec.dart';
 import '../../services/image/webp_encoder.dart';
 import 'alpha_scan.dart';
+import 'annotation.dart';
+import 'color_adjust.dart';
 import 'crop_apply.dart';
 import 'crop_selection.dart';
 import 'format_detector.dart';
+import 'format_encoders.dart';
+import 'watermark.dart';
 import 'ico_frame_select.dart';
 import 'ico_packer.dart';
 import 'image_format.dart';
@@ -44,6 +49,11 @@ class EncodeRequest {
     this.jpegChroma = JpegChromaOption.yuv420,
     this.pngLevel = 6,
     this.pngPalette = false,
+    this.exportAnimation = false,
+    this.avifQuality = 60,
+    this.colorAdjust = const ColorAdjust(),
+    this.watermark,
+    this.annotations = const [],
   });
 
   /// 源文件字节流（会话期缓存，导出时据此二次解码全图，PRD 九.3 延迟渲染）。
@@ -81,6 +91,25 @@ class EncodeRequest {
   ///
   /// 源图含半透明像素时编码端会自动跳过，见 [hasSemiTransparentPixels]。
   final bool pngPalette;
+
+  /// 导出为动图（仅 GIF 有意义）：保留源动图的帧序与延时，重新编码为新 GIF。
+  ///
+  /// 默认 false——静态帧导出。置 true 但源图非动图时自动退化为静态 GIF。
+  final bool exportAnimation;
+
+  /// AVIF 编码质量 0–100，仅 [ImageFormat.avif] 有意义。
+  final int avifQuality;
+
+  /// 基础调色参数（v0.5 / M3）。
+  final ColorAdjust colorAdjust;
+
+  /// 文字水印；null 表示不加（v0.5 / M3）。
+  final TextWatermark? watermark;
+
+  /// 标注矢量数据；空表示无标注（v0.5 / M3）。
+  ///
+  /// 合成顺序固定在裁剪/缩放之后，避免几何变换拉伸线宽（PRD 一.7 实现要点）。
+  final List<Annotation> annotations;
 }
 
 /// 编码结果。
@@ -113,6 +142,9 @@ class EstimateRequest {
     this.jpegChroma = JpegChromaOption.yuv420,
     this.pngLevel = 6,
     this.pngPalette = false,
+    this.colorAdjust = const ColorAdjust(),
+    this.watermark,
+    this.annotations = const [],
   });
 
   final Uint8List previewPng;
@@ -125,6 +157,9 @@ class EstimateRequest {
   final JpegChromaOption jpegChroma;
   final int pngLevel;
   final bool pngPalette;
+  final ColorAdjust colorAdjust;
+  final TextWatermark? watermark;
+  final List<Annotation> annotations;
 }
 
 /// 图片编码服务：在独立 Isolate 中二次解码全图并编码为导出格式。
@@ -143,6 +178,11 @@ class EncodeService {
     ImageFormat.bmp,
     ImageFormat.webp,
     ImageFormat.ico,
+    // v0.5 / M3：TIFF、GIF、AVIF 加入导出。AVIF 依赖原生库，
+    // 能力位由 capabilities.dart 控制，未就绪的端不会出现在导出面板。
+    ImageFormat.tiff,
+    ImageFormat.gif,
+    ImageFormat.avif,
   ];
 
   /// 编码 [EncodeRequest.sourceBytes] 为目标格式。
@@ -166,6 +206,11 @@ class EncodeService {
         request.jpegChroma,
         request.pngLevel,
         request.pngPalette,
+        request.exportAnimation,
+        request.avifQuality,
+        request.colorAdjust,
+        request.watermark,
+        request.annotations,
         token,
       ),
     );
@@ -207,6 +252,11 @@ Future<EncodeResult?> _encodeImage(
   JpegChromaOption jpegChroma,
   int pngLevel,
   bool pngPalette,
+  bool exportAnimation,
+  int avifQuality,
+  ColorAdjust colorAdjust,
+  TextWatermark? watermark,
+  List<Annotation> annotations,
   RootIsolateToken? token,
 ) async {
   final source = transferable.materialize().asUint8List();
@@ -230,6 +280,43 @@ Future<EncodeResult?> _encodeImage(
   // 顺序反了会让「目标 200×150 + 裁剪」变成对缩放后的图再裁，坐标全错。
   if (resize != null) {
     work = applyResize(work, resize);
+  }
+
+  // 编辑能力在几何变换之后统一套用：调色 → 水印 → 标注。
+  // 顺序固定，标注永远合成在最上层（PRD 一.7）。
+  work = _applyEdits(work, colorAdjust, watermark, annotations);
+
+  // GIF 动图导出：从源字节重新解出全部帧，逐帧套用同一裁剪/缩放，保留
+  // 每帧延时与循环次数后重新编码。帧内容不改（PRD v0.5 四.10）。
+  // exportAnimation=false 或源非动图时落到下面的静态编码分支。
+  if (format == ImageFormat.gif && exportAnimation && decoded.frames.length > 1) {
+    final frames = <GifFrame>[];
+    for (var i = 0; i < decoded.frames.length; i++) {
+      var frame = img.bakeOrientation(img.Image.from(decoded.frames[i]));
+      if (crop != null && !crop.isEmpty) {
+        frame = applyCrop(frame, crop, circle: cropCircle);
+      }
+      if (resize != null) frame = applyResize(frame, resize);
+      frame = _applyEdits(frame, colorAdjust, watermark, annotations);
+      if (!frame.hasAlpha) frame = frame.convert(numChannels: 4);
+      frames.add(
+        GifFrame(
+          image: frame,
+          durationCentiseconds: decoded.frames[i].frameDuration,
+        ),
+      );
+    }
+    if (frames.isEmpty) return null;
+    final bytes = FormatEncoders.encodeGif(
+      frames.first.image,
+      frames: frames,
+      loopCount: decoded.loopCount,
+    );
+    return EncodeResult(
+      bytes: bytes,
+      size: ImageDimensions(frames.first.image.width, frames.first.image.height),
+      alphaFlattened: false,
+    );
   }
 
   if (format == ImageFormat.ico) {
@@ -274,6 +361,24 @@ Future<EncodeResult?> _encodeImage(
     );
   }
 
+  // AVIF 没有纯 Dart 编码器，走平台原生能力（Windows FFI / Android 通道），
+  // 与 WebP 同构。未就绪的端返回失败，由能力矩阵在 UI 层提前隐藏该格式。
+  if (format == ImageFormat.avif) {
+    final result = await AvifCodec.encode(
+      rgba: output.getBytes(order: img.ChannelOrder.rgba),
+      width: output.width,
+      height: output.height,
+      quality: avifQuality.clamp(0, 100),
+      token: token,
+    );
+    if (!result.isSuccess) return null;
+    return EncodeResult(
+      bytes: result.bytes!,
+      size: ImageDimensions(output.width, output.height),
+      alphaFlattened: false,
+    );
+  }
+
   final bytes = _encodeBytes(
     output,
     format,
@@ -289,6 +394,22 @@ Future<EncodeResult?> _encodeImage(
     size: ImageDimensions(output.width, output.height),
     alphaFlattened: alphaFlattened,
   );
+}
+
+/// 统一套用 M3 编辑能力：调色 → 水印 → 标注（标注在最上层）。
+img.Image _applyEdits(
+  img.Image image,
+  ColorAdjust colorAdjust,
+  TextWatermark? watermark,
+  List<Annotation> annotations,
+) {
+  var work = image;
+  work = applyColorAdjust(work, colorAdjust);
+  if (watermark != null) {
+    work = applyTextWatermark(work, watermark);
+  }
+  work = applyAnnotations(work, annotations);
+  return work;
 }
 
 /// 透明区域填白底，返回 3 通道图（PRD 四.4 / 四.6）。
@@ -326,6 +447,8 @@ Uint8List? _encodeBytes(
       level: pngLevel.clamp(0, 9),
     ),
     ImageFormat.bmp => img.encodeBmp(image),
+    ImageFormat.tiff => FormatEncoders.encodeTiff(image),
+    ImageFormat.gif => FormatEncoders.encodeGif(image, loopCount: 0),
     _ => null,
   };
 }
@@ -349,9 +472,11 @@ Future<int?> _estimateBytes(EstimateRequest request, RootIsolateToken? token) as
           interpolation: img.Interpolation.average,
         );
 
-  final prepared = !request.format.supportsAlpha && sample.hasAlpha
+  var prepared = !request.format.supportsAlpha && sample.hasAlpha
       ? _flattenToWhite(sample)
       : sample;
+  // 编辑能力也计入预估，否则加了水印/调色后预估体积明显偏低
+  prepared = _applyEdits(prepared, request.colorAdjust, request.watermark, request.annotations);
 
   final int bytes;
   if (request.format == ImageFormat.webp) {

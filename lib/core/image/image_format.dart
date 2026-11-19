@@ -17,7 +17,11 @@ enum ImageFormat {
   /// 纯 Dart 无 HEVC 解码器，解码依赖平台能力（Android 8.0+ 系统内置）。
   heic,
 
-  /// AVIF 容器（AV1 编码）。当前只做识别与提示，不解码。
+  /// AVIF 容器（AV1 编码，v0.5 起 M3 目标双向格式）。
+  ///
+  /// 纯 Dart 无 AV1 编解码器，导入/导出都借平台原生能力
+  /// （Windows 随包 libavif FFI / Android 系统 ImageDecoder），
+  /// 与 HEIC / WebP 同属纯 Dart 铁律例外。见 services/image/avif_codec.dart。
   avif;
 
   static ImageFormat? fromExtension(String ext) {

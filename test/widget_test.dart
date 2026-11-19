@@ -693,6 +693,15 @@ void main() {
     expect(fieldText('高（px）'), '100');
   });
 
+  testWidgets('M3：首页批量入口进入批量处理页', (tester) async {
+    await _bootHome(tester);
+    await tester.tap(find.text('批量处理（新）'));
+    await tester.pumpAndSettle();
+    expect(find.text('批量处理'), findsWidgets);
+    expect(find.text('选择多张'), findsOneWidget);
+    expect(find.text('统一配置'), findsNothing); // 未选图不显示配置
+  });
+
   testWidgets('尺寸页：重新打开锁定后，当前尺寸立即对齐锁定比例', (tester) async {
     await _bootHome(tester, size: const ImageDimensions(400, 300));
     await _importImage(tester);

@@ -53,11 +53,17 @@ void main() {
       }
     });
 
-    test('TIFF / TGA / PPM 全端关闭（附录 #8 已拍板移出 MVP）', () {
+    test('v0.5：TIFF 在 Windows/Android 导入，TGA/PPM 全端关闭', () {
+      // TIFF 随 v0.5 优先级调整拉回（附录 #8 结论作废），仅双端先行
+      expect(windows.canImport(ImageFormat.tiff), isTrue);
+      expect(android.canImport(ImageFormat.tiff), isTrue);
+      for (final caps in [harmony, web, mini]) {
+        expect(caps.canImport(ImageFormat.tiff), isFalse, reason: '${caps.target}');
+      }
+      // TGA / PPM 仍留需求池，全端关闭
       for (final caps in [windows, android, harmony, web, mini]) {
-        for (final f in ImageFormat.values.where((f) => f.isNiche)) {
-          expect(caps.canImport(f), isFalse, reason: '${caps.target}-$f');
-        }
+        expect(caps.canImport(ImageFormat.tga), isFalse, reason: '${caps.target}');
+        expect(caps.canImport(ImageFormat.ppm), isFalse, reason: '${caps.target}');
       }
     });
 
@@ -71,11 +77,16 @@ void main() {
       for (final caps in [windows, android, harmony, web, mini]) {
         final exts = caps.importExtensions.toSet();
         expect(exts.contains('svg'), isFalse);
-        expect(exts.contains('tif'), isFalse);
         expect(exts.contains('tga'), isFalse);
         expect(exts.contains('ppm'), isFalse);
         // APNG 与 PNG 共用扩展名，故扩展名数量少于格式数量
         expect(exts, containsAll(['jpg', 'png', 'bmp', 'webp', 'gif', 'ico']));
+        // v0.5：tif 只在 Windows/Android 的导入并集里
+        if (caps.target == AppTarget.windows || caps.target == AppTarget.android) {
+          expect(exts, contains('tif'));
+        } else {
+          expect(exts, isNot(contains('tif')));
+        }
       }
     });
   });
@@ -100,6 +111,22 @@ void main() {
       expect(harmony.canExport(ImageFormat.ico), isTrue);
       expect(web.canExport(ImageFormat.ico), isFalse);
       expect(mini.canExport(ImageFormat.ico), isFalse);
+    });
+
+    test('v0.5：TIFF/GIF 双端可导出，AVIF 原生库未就位全端关闭', () {
+      // TIFF：image 包纯 Dart 编码；GIF：静态/动图纯 Dart
+      expect(windows.canExport(ImageFormat.tiff), isTrue);
+      expect(android.canExport(ImageFormat.tiff), isTrue);
+      expect(windows.canExport(ImageFormat.gif), isTrue);
+      expect(android.canExport(ImageFormat.gif), isTrue);
+      for (final caps in [harmony, web, mini]) {
+        expect(caps.canExport(ImageFormat.tiff), isFalse);
+        expect(caps.canExport(ImageFormat.gif), isFalse);
+      }
+      // AVIF 需 libavif.dll + Android 原生通道，未就位前能力位如实关闭
+      for (final caps in [windows, android, harmony, web, mini]) {
+        expect(caps.canExport(ImageFormat.avif), isFalse, reason: '${caps.target}');
+      }
     });
 
     test('JPEG / PNG / BMP 全端可导出', () {
