@@ -2,6 +2,8 @@ import 'dart:math' as math;
 
 import 'package:image/image.dart' as img;
 
+import 'cjk_text.dart';
+
 /// 文字水印锚点位置（PRD 需求池一.1：四角 + 居中）。
 enum WatermarkPosition {
   topLeft,
@@ -13,9 +15,8 @@ enum WatermarkPosition {
 
 /// 文字水印参数（v0.5 / M3）。
 ///
-/// 注意字体限制：`image` 包自带 arial 位图字体只含 ASCII，中文字符会被
-/// `drawString` 跳过（不渲染）。要支持中文需打包点阵字体或改走平台文本渲染，
-/// 属 M3 后续项；本实现保证 ASCII 水印完整可用，中文不崩溃但不显示。
+/// 字体：内嵌 Noto Sans SC 点阵（见 [CjkText]），支持中文与 ASCII，
+/// 字号按 24px 基准缩放，纯 Dart、后台 Isolate 可用。
 class TextWatermark {
   const TextWatermark({
     required this.text,
@@ -27,10 +28,10 @@ class TextWatermark {
     this.margin = 16,
   });
 
-  /// 水印文字（ASCII）。
+  /// 水印文字（支持中文与 ASCII，常用汉字取 GB2312 一级字库）。
   final String text;
 
-  /// 字号：选 arial14/24/48 中最接近的一档。
+  /// 字号（像素），按 24px 基准缩放字形。
   final int fontSize;
 
   /// 颜色（ARGB 32 位）。
@@ -58,12 +59,6 @@ class TextWatermark {
         position: position,
         margin: margin,
       );
-
-  img.BitmapFont get _font {
-    if (fontSize <= 14) return img.arial14;
-    if (fontSize >= 48) return img.arial48;
-    return img.arial24;
-  }
 }
 
 /// 把文字水印合成到位图，返回新图（不修改入参）。
@@ -78,7 +73,8 @@ img.Image applyTextWatermark(img.Image source, TextWatermark w) {
     _b(w.colorArgb),
     alpha,
   );
-  final font = w._font;
+  // 用内嵌中文字体（按字号缩放），支持中文与 ASCII
+  final font = CjkText.fontFor(w.text, w.fontSize);
 
   // 量出文字实际尺寸，用于定位与旋转画布
   var textW = 0;
@@ -92,8 +88,9 @@ img.Image applyTextWatermark(img.Image source, TextWatermark w) {
   if (textW <= 0 || textH <= 0) return result;
 
   // 在独立透明画布上画文字，支持旋转后再整体合成
-  final layer = img.Image(width: textW, height: textH, numChannels: 4);
-  img.drawString(layer, w.text, font: font, x: 0, y: 0, color: color);
+  // 画布留 4px 余量，避免字形 xOffset/yOffset 为负时被裁切
+  final layer = img.Image(width: textW + 4, height: textH + 4, numChannels: 4);
+  img.drawString(layer, w.text, font: font, x: 2, y: 2, color: color);
 
   img.Image placed = layer;
   if (w.rotation != 0) {

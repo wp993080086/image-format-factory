@@ -43,13 +43,45 @@ void main() {
       expect(src.getPixel(60, 40).r, 0);
     });
 
-    test('中文字符不崩溃（位图字体不含中文，跳过渲染）', () {
+    test('中文水印渲染出像素（内嵌 Noto Sans SC 点阵）', () {
       final src = _black();
-      final out = applyTextWatermark(
-        src,
-        const TextWatermark(text: '水印', fontSize: 48),
+      const w = TextWatermark(
+        text: '水印',
+        fontSize: 24,
+        colorArgb: 0xFFFFFFFF,
+        position: WatermarkPosition.center,
       );
-      expect(out.width, src.width);
+      final out = applyTextWatermark(src, w);
+      var changed = 0;
+      for (var y = 0; y < out.height; y++) {
+        for (var x = 0; x < out.width; x++) {
+          if (out.getPixel(x, y).r > 10) changed++;
+        }
+      }
+      expect(changed, greaterThan(20), reason: '中文应实际画出字形');
+      expect(src.getPixel(60, 40).r, 0, reason: '不修改入参');
+    });
+
+    test('中文按字号缩放：48px 比 24px 画出更多像素', () {
+      int changedAt(int size) {
+        final big = img.Image(width: 300, height: 200, numChannels: 4);
+        img.fill(big, color: img.ColorRgba8(0, 0, 0, 255));
+        final out = applyTextWatermark(
+          big,
+          TextWatermark(
+            text: '中文',
+            fontSize: size,
+            position: WatermarkPosition.center,
+          ),
+        );
+        var n = 0;
+        for (final p in out) {
+          if (p.r > 10) n++;
+        }
+        return n;
+      }
+
+      expect(changedAt(48), greaterThan(changedAt(24)));
     });
 
     test('旋转不崩溃且保持画布尺寸', () {
