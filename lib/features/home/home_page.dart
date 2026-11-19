@@ -286,6 +286,8 @@ class _FeatureGrid extends StatelessWidget {
     _FeatureItem(Icons.photo_size_select_large, '尺寸与比例', AppRoutes.resize),
     _FeatureItem(Icons.swap_horiz, '格式转换', AppRoutes.exportPanel),
     _FeatureItem(Icons.compress, '图片压缩', AppRoutes.exportPanel),
+    _FeatureItem(Icons.blur_on, '涂抹打码 / 模糊', AppRoutes.annotate),
+    _FeatureItem(Icons.draw, '标注', AppRoutes.annotate),
   ];
 
   @override
@@ -346,11 +348,14 @@ class _FeatureCard extends StatelessWidget {
             children: [
               Icon(icon, color: color),
               const SizedBox(width: 12),
-              Text(
-                title,
-                style: Theme.of(
-                  context,
-                ).textTheme.titleMedium?.copyWith(color: color),
+              Flexible(
+                child: Text(
+                  title,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleMedium?.copyWith(color: color),
+                ),
               ),
             ],
           ),

@@ -8,6 +8,7 @@ import 'package:pixel_forge/app/app.dart';
 import 'package:pixel_forge/app/app_info.dart';
 import 'package:pixel_forge/core/di/providers.dart';
 import 'package:pixel_forge/core/error/app_error.dart';
+import 'package:pixel_forge/core/image/annotation.dart';
 import 'package:pixel_forge/core/image/decode_service.dart';
 import 'package:pixel_forge/core/image/encode_service.dart';
 import 'package:pixel_forge/core/image/image_format.dart';
@@ -165,6 +166,7 @@ void main() {
     expect(find.text('尺寸与比例'), findsOneWidget);
     expect(find.text('格式转换'), findsOneWidget);
     expect(find.text('图片压缩'), findsOneWidget);
+    expect(find.text('标注'), findsOneWidget);
   });
 
   testWidgets('未导入图片时功能入口不可点击', (tester) async {
@@ -728,4 +730,172 @@ void main() {
     await tester.pumpAndSettle();
     expect(fieldText('高（px）'), '600');
   });
+
+  testWidgets('标注页：切换工具、拖拽创建、撤销重做', (tester) async {
+    await _bootHome(tester, size: const ImageDimensions(128, 128));
+    await _importImage(tester);
+
+    await tester.tap(find.text('标注'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('annotateCanvas')), findsOneWidget);
+    for (final label in [
+      '选择', '文字', '直线', '箭头', '矩形', '圆形', '椭圆', '马赛克', '涂抹打码',
+      '头像块', '昵称条',
+    ]) {
+      expect(find.widgetWithText(ChoiceChip, label), findsOneWidget, reason: label);
+    }
+
+    // 选矩形工具，在画布上拖出一个框
+    await tester.tap(find.widgetWithText(ChoiceChip, '矩形'));
+    await tester.pumpAndSettle();
+    final rect = tester.getRect(find.byKey(const ValueKey('annotateCanvas')));
+    await tester.dragFrom(
+      Offset(rect.left + 80, rect.top + 80),
+      const Offset(120, 100),
+    );
+    await tester.pumpAndSettle();
+
+    final undo = find.byWidgetPredicate((w) => w is IconButton && w.tooltip == '撤销 (Ctrl+Z)');
+    expect(tester.widget<IconButton>(undo).onPressed, isNotNull,
+        reason: '创建标注后应可撤销');
+
+    await tester.tap(undo);
+    await tester.pumpAndSettle();
+    final clear = find.byWidgetPredicate((w) => w is IconButton && w.tooltip == '清空标注');
+    expect(tester.widget<IconButton>(clear).onPressed, isNull,
+        reason: '撤销后无标注，清空应禁用');
+
+    final redo = find.byWidgetPredicate((w) => w is IconButton && w.tooltip == '重做 (Ctrl+Shift+Z)');
+    expect(tester.widget<IconButton>(redo).onPressed, isNotNull);
+    await tester.tap(redo);
+    await tester.pumpAndSettle();
+    expect(tester.widget<IconButton>(clear).onPressed, isNotNull,
+        reason: '重做后应有标注');
+  });
+
+  testWidgets('标注页：涂抹打码工具可拖拽创建并进入属性条', (tester) async {
+    await _bootHome(tester, size: const ImageDimensions(128, 128));
+    await _importImage(tester);
+
+    await tester.tap(find.text('标注'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.widgetWithText(ChoiceChip, '涂抹打码'));
+    await tester.pumpAndSettle();
+    final rect = tester.getRect(find.byKey(const ValueKey('annotateCanvas')));
+    await tester.dragFrom(
+      Offset(rect.left + 40, rect.top + 60),
+      const Offset(60, 0),
+    );
+    await tester.pumpAndSettle();
+
+    // 创建后自动选中，属性条出现笔刷半径滑块与模式切换
+    expect(find.text('笔刷'), findsOneWidget);
+    expect(find.text('模糊'), findsWidgets);
+  });
+
+  testWidgets('标注页：整图模糊滑块可调且数值实时反映', (tester) async {
+    await _bootHome(tester, size: const ImageDimensions(128, 128));
+    await _importImage(tester);
+
+    await tester.tap(find.text('标注'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('整图模糊'), findsOneWidget);
+    final slider = find.byType(Slider);
+    expect(slider, findsOneWidget, reason: '无选中标注时只有整图模糊一个滑块');
+    // 拖到最右 → 显示 100
+    await tester.drag(slider, const Offset(300, 0));
+    await tester.pumpAndSettle();
+    expect(find.text('100'), findsWidgets);
+  });
+
+  testWidgets('标注页：长图默认按宽度铺满，可切换回适应视图', (tester) async {
+    // 高/宽 = 6，属于长图：默认 width 模式（顶对齐、可上下拖）
+    await _bootHome(tester, size: const ImageDimensions(200, 1200));
+    await _importImage(tester);
+    await tester.tap(find.text('标注'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('annotateCanvas')), findsOneWidget);
+    expect(find.text('上下拖动查看'), findsOneWidget, reason: '长图应默认按宽度铺满');
+    expect(find.text('双指/滚轮缩放'), findsNothing);
+
+    // 视图条点击「适应」→ 整图塞进视口
+    await tester.tap(find.text('适应'));
+    await tester.pumpAndSettle();
+    expect(find.text('双指/滚轮缩放'), findsOneWidget);
+    expect(find.text('上下拖动查看'), findsNothing);
+  });
+
+  testWidgets('标注页：点按放码头像块/昵称条生成预设尺寸马赛克，且复用普通标注管线',
+      (tester) async {
+    await _bootHome(tester, size: const ImageDimensions(128, 128));
+    await _importImage(tester);
+    await tester.tap(find.text('标注'));
+    await tester.pumpAndSettle();
+
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(Scaffold).first),
+    );
+    List<Annotation> anns() => container.read(editorControllerProvider).annotations;
+    final center = tester.getCenter(find.byKey(const ValueKey('annotateCanvas')));
+
+    // 头像块：单击落一个 40×40 的马赛克（落点为中心）
+    await tester.tap(find.widgetWithText(ChoiceChip, '头像块'));
+    await tester.pumpAndSettle();
+    await tester.tapAt(center);
+    await tester.pumpAndSettle();
+    expect(anns().length, 1);
+    final avatar = anns().last;
+    expect(avatar.type, AnnotationType.mosaic, reason: '点按放码落到普通马赛克标注');
+    expect(avatar.x2 - avatar.x1, 40);
+    expect(avatar.y2 - avatar.y1, 40);
+
+    // 昵称条：单击落一个 100×28 的马赛克
+    await tester.tap(find.widgetWithText(ChoiceChip, '昵称条'));
+    await tester.pumpAndSettle();
+    await tester.tapAt(center);
+    await tester.pumpAndSettle();
+    expect(anns().length, 2);
+    final bar = anns().last;
+    expect(bar.type, AnnotationType.mosaic);
+    expect(bar.x2 - bar.x1, 100);
+    expect(bar.y2 - bar.y1, 28);
+
+    // 复用现有管线：落块即选中，属性条出现马赛克「块」滑块；撤销可用
+    expect(find.text('块'), findsOneWidget);
+    final undo = find.byWidgetPredicate(
+      (w) => w is IconButton && w.tooltip == '撤销 (Ctrl+Z)',
+    );
+    expect(tester.widget<IconButton>(undo).onPressed, isNotNull);
+  });
+
+  testWidgets('标注页：按住空格拖动只平移视图，不新建标注', (tester) async {
+    await _bootHome(tester, size: const ImageDimensions(200, 1200));
+    await _importImage(tester);
+    await tester.tap(find.text('标注'));
+    await tester.pumpAndSettle();
+
+    // 选矩形工具（不带空格时会创建），再按住空格拖动画布
+    await tester.tap(find.widgetWithText(ChoiceChip, '矩形'));
+    await tester.pumpAndSettle();
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.space);
+    final rect = tester.getRect(find.byKey(const ValueKey('annotateCanvas')));
+    await tester.dragFrom(
+      Offset(rect.left + rect.width / 2, rect.top + rect.height / 2),
+      const Offset(0, -60),
+    );
+    await tester.pumpAndSettle();
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.space);
+
+    // 空格拖动只平移，撤销应始终保持禁用
+    final undo = find.byWidgetPredicate(
+      (w) => w is IconButton && w.tooltip == '撤销 (Ctrl+Z)',
+    );
+    expect(tester.widget<IconButton>(undo).onPressed, isNull,
+        reason: '空格拖动不应创建标注');
+  });
+
 }

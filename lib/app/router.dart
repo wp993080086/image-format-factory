@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../features/about/about_page.dart';
+import '../features/annotate/annotate_page.dart';
 import '../features/batch/batch_page.dart';
 import '../features/crop/crop_page.dart';
 import '../features/export/export_page.dart';
@@ -15,6 +16,9 @@ abstract final class AppRoutes {
 
   /// 导出面板：格式转换与压缩合并为同一页面（PRD 四 / 五章、十三章）。
   static const exportPanel = '/export';
+
+  /// 标注页（v0.5 / M3）：七类标注 + 拖动定位 + 手柄调整。
+  static const annotate = '/annotate';
 
   /// 批量流水线入口（v0.5 / M3）：单图是 N=1 的特例。
   static const pipeline = '/pipeline';
@@ -42,6 +46,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.exportPanel,
         builder: (context, state) => const ExportPage(),
+      ),
+      GoRoute(
+        path: AppRoutes.annotate,
+        builder: (context, state) => const AnnotatePage(),
       ),
       GoRoute(
         path: AppRoutes.pipeline,
