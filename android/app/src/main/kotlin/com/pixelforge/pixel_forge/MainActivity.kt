@@ -2,6 +2,7 @@ package com.pixelforge.pixel_forge
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.ImageDecoder
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -20,13 +21,17 @@ import java.util.concurrent.Executors
  *   这里把 HEIC 字节解成 PNG 字节回给 Dart，后续处理走既有管线。
  * - `pixel_forge/webp`：WebP 编码。
  *   `image` 包只有 webp 解码器；系统自带 WebP 编码器，零新增依赖。
+ * - `pixel_forge/avif`：AVIF 解码。
+ *   系统 ImageDecoder 从 Android 12（API 31）起支持 AVIF 静态图；
+ *   编码系统无 API，一律返回 unsupported，由 Dart 侧隐藏导出能力位。
  *
- * 两个通道都在后台线程做重活：解码 12MP 的 HEVC 或压缩大图放主线程会卡 UI，
+ * 三个通道都在后台线程做重活：解码 12MP 的 HEVC 或压缩大图放主线程会卡 UI，
  * 甚至触发 ANR。结果统一回主线程回调（MethodChannel 要求）。
  */
 class MainActivity : FlutterActivity() {
     private val heifChannelName = "pixel_forge/heif"
     private val webpChannelName = "pixel_forge/webp"
+    private val avifChannelName = "pixel_forge/avif"
 
     private val worker = Executors.newSingleThreadExecutor()
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -54,6 +59,20 @@ class MainActivity : FlutterActivity() {
                         call.argument<Int>("quality") ?: 85,
                         call.argument<Boolean>("lossless") ?: false,
                         result,
+                    )
+                    else -> result.notImplemented()
+                }
+            }
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, avifChannelName)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "decode" -> decodeAvif(
+                        call.argument<ByteArray>("bytes"),
+                        call.argument<Int>("maxPixels"),
+                        result,
+                    )
+                    "encode" -> result.error(
+                        "unsupported", "系统不支持 AVIF 编码", null,
                     )
                     else -> result.notImplemented()
                 }
@@ -103,6 +122,54 @@ class MainActivity : FlutterActivity() {
                 bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
                 bitmap.recycle()
                 postSuccess(result, out.toByteArray())
+            } catch (e: OutOfMemoryError) {
+                postError(result, "decode-failed", "内存不足")
+            } catch (e: Exception) {
+                postError(result, "decode-failed", e.message)
+            }
+        }
+    }
+
+    private fun decodeAvif(
+        bytes: ByteArray?,
+        maxPixels: Int?,
+        result: MethodChannel.Result,
+    ) {
+        if (bytes == null || bytes.isEmpty()) {
+            result.error("decode-failed", "缺少图片数据", null)
+            return
+        }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+            result.error("unsupported", "系统版本低于 Android 12", null)
+            return
+        }
+        worker.execute {
+            try {
+                val source = ImageDecoder.createSource(java.nio.ByteBuffer.wrap(bytes))
+                var rejected = false
+                val bitmap = ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
+                    val pixels = info.size.width.toLong() * info.size.height.toLong()
+                    if (maxPixels != null && maxPixels > 0 && pixels > maxPixels) {
+                        rejected = true
+                        decoder.setAllocator(ImageDecoder.ALLOCATOR_SOFTWARE)
+                        throw IllegalArgumentException("pixel-limit:$pixels")
+                    }
+                    decoder.setAllocator(ImageDecoder.ALLOCATOR_SOFTWARE)
+                }
+                if (rejected) {
+                    postError(result, "pixel-limit", "解码像素超限")
+                    return@execute
+                }
+                val out = ByteArrayOutputStream()
+                bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+                bitmap.recycle()
+                postSuccess(result, out.toByteArray())
+            } catch (e: IllegalArgumentException) {
+                if (e.message?.startsWith("pixel-limit:") == true) {
+                    postError(result, "pixel-limit", e.message)
+                } else {
+                    postError(result, "decode-failed", e.message)
+                }
             } catch (e: OutOfMemoryError) {
                 postError(result, "decode-failed", "内存不足")
             } catch (e: Exception) {

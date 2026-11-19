@@ -1,17 +1,14 @@
-import 'dart:isolate';
-
 import 'package:flutter/services.dart';
-import 'package:image/image.dart' as img;
 
 import '../../core/platform/app_platform.dart';
-import 'avif_native.dart';
+import 'avif_cli.dart';
 
 /// AVIF 编解码失败原因。
 enum AvifError {
   /// 当前端没有 AVIF 编解码通道（纯 Dart 无 AV1 编解码器）。
   unsupportedPlatform,
 
-  /// 端上有通道，但原生库没就位（当前 Windows 尚未随包 libavif.dll）。
+  /// 端上有通道，但随包 CLI 未就位。
   nativeUnavailable,
 
   /// 编码过程失败。
@@ -47,13 +44,13 @@ class AvifDecodeResult {
   bool get isSuccess => png != null;
 }
 
-/// AVIF 编码器：借平台原生能力，纯 Dart 路线不通（ADR-010 同 WebP/HEIF）。
+/// AVIF 编码器：纯 Dart 无 AV1 编解码器，借平台原生能力（同 WebP/HEIF）。
 ///
 /// 分端策略：
-/// - Windows：FFI 调 libavif，需在 [libraryPath] 传入 DLL 路径（测试注入）；
-///   仓库当前未随包分发该 DLL，生产启用前需补齐（见 M3 执行手册）。
-/// - Android：平台通道，用系统 `ImageDecoder`/`Bitmap` 的 AVIF 能力
-///   （Android 11+ 解码 / 部分机型编码），由原生侧实现。
+/// - Windows：调随包的 libavif 官方 CLI（avifenc/avifdec），静态链接零依赖；
+///   [exeDir] 供测试注入 CLI 所在目录。
+/// - Android：平台通道，用系统 ImageDecoder 的 AVIF 静态图解码
+///   （Android 12+/部分 11 机型）；编码系统无 API，返回 unsupported。
 /// - 其余端：不支持。
 ///
 /// [token] 供后台 isolate 发平台消息用，语义同 WebpEncoder。
@@ -62,10 +59,12 @@ class AvifCodec {
 
   static const channelName = 'pixel_forge/avif';
 
-  /// 指定端是否具备 AVIF 编码能力。
-  ///
-  /// 能力矩阵据此在 DLL 未就位前隐藏 AVIF 导出，遵循"能力位如实"原则。
-  static bool isSupportedFor(AppTarget target) => false;
+  /// 指定端是否具备 AVIF 能力（编码 Windows 可，Android 仅解码）。
+  static bool isSupportedFor(AppTarget target) =>
+      target == AppTarget.windows || target == AppTarget.android;
+
+  /// 指定端是否具备 AVIF 编码能力（Android 系统无 AVIF 编码器）。
+  static bool canEncodeFor(AppTarget target) => target == AppTarget.windows;
 
   static Future<AvifResult> encode({
     required Uint8List rgba,
@@ -74,22 +73,26 @@ class AvifCodec {
     required int quality,
     AppTarget? target,
     RootIsolateToken? token,
-    String? libraryPath,
+    String? exeDir,
   }) async {
     final current = target ?? AppPlatform.current;
 
     if (current == AppTarget.windows) {
-      final bytes = encodeAvifNative(
+      final result = await encodeAvifCli(
         rgba: rgba,
         width: width,
         height: height,
         quality: quality,
-        libraryPath: libraryPath,
+        exeDir: exeDir,
       );
-      if (bytes == null) {
-        return const AvifResult.failure(AvifError.nativeUnavailable);
+      if (!result.isSuccess) {
+        return AvifResult.failure(
+          result.error == 'avifenc.exe not found'
+              ? AvifError.nativeUnavailable
+              : AvifError.failed,
+        );
       }
-      return AvifResult.success(bytes);
+      return AvifResult.success(result.bytes!);
     }
 
     if (current == AppTarget.android) {
@@ -125,12 +128,12 @@ class AvifCodec {
 
   /// 解码 AVIF 为 PNG 字节。
   ///
-  /// [maxPixels] 由调用方按端上限传入；[libraryPath] 供测试注入 libavif.dll。
+  /// [maxPixels] 由调用方按端上限传入；[exeDir] 供测试注入 Windows CLI 目录。
   static Future<AvifDecodeResult> decode(
     Uint8List bytes, {
     required int maxPixels,
     AppTarget? target,
-    String? libraryPath,
+    String? exeDir,
   }) async {
     final current = target ?? AppPlatform.current;
 
@@ -152,19 +155,22 @@ class AvifCodec {
           _ => AvifDecodeError.failed,
         });
       } on MissingPluginException {
-        return const AvifDecodeResult.failure(AvifDecodeError.unsupportedPlatform);
+        return const AvifDecodeResult.failure(
+          AvifDecodeError.unsupportedPlatform,
+        );
       }
     }
 
     if (current == AppTarget.windows) {
-      final transferable = TransferableTypedData.fromList([bytes]);
-      try {
-        return await Isolate.run(
-          () => _decodeAvifOnWindows(transferable, maxPixels, libraryPath),
-        );
-      } catch (_) {
+      final result = await decodeAvifCli(
+        bytes,
+        maxPixels: maxPixels,
+        exeDir: exeDir,
+      );
+      if (!result.isSuccess) {
         return const AvifDecodeResult.failure(AvifDecodeError.failed);
       }
+      return AvifDecodeResult.success(result.bytes!);
     }
 
     return const AvifDecodeResult.failure(AvifDecodeError.unsupportedPlatform);
@@ -179,28 +185,4 @@ class AvifCodec {
       return null;
     }
   }
-}
-
-AvifDecodeResult _decodeAvifOnWindows(
-  TransferableTypedData transferable,
-  int maxPixels,
-  String? libraryPath,
-) {
-  final bytes = transferable.materialize().asUint8List();
-  final native = decodeAvifNative(
-    bytes,
-    maxPixels: maxPixels,
-    libraryPath: libraryPath,
-  );
-  if (!native.isSuccess) {
-    return const AvifDecodeResult.failure(AvifDecodeError.failed);
-  }
-  final image = img.Image.fromBytes(
-    width: native.width,
-    height: native.height,
-    bytes: native.rgba!.buffer,
-    numChannels: 4,
-    order: img.ChannelOrder.rgba,
-  );
-  return AvifDecodeResult.success(img.encodePng(image));
 }

@@ -10,6 +10,10 @@ flutter/ephemeral/
 x64/
 x86/
 
+# 随包分发的原生编解码器产物在 windows/native/bin/x64/，不能当作构建垃圾忽略。
+# 上一条 x64/ 会误伤它，这里显式放行（DLL 与 avifenc/avifdec CLI 都必须入库）。
+!native/bin/x64/
+
 # Visual Studio cache files
 # files ending in .cache can be ignored
 *.[Cc]ache

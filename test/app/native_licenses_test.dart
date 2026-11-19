@@ -18,7 +18,7 @@ void main() {
   });
 
   test('许可标识只能是已确认的 SPDX 值', () {
-    const allowed = {'BSD-3-Clause', 'LGPL-3.0'};
+    const allowed = {'BSD-2-Clause', 'BSD-3-Clause', 'LGPL-3.0'};
     for (final lib in nativeLibraryLicenses) {
       expect(allowed, contains(lib.license), reason: '${lib.name} 许可未复核');
     }
@@ -28,6 +28,13 @@ void main() {
     final names = nativeLibraryLicenses.map((e) => e.name).toSet();
     expect(names, contains('libwebp'));
     expect(names, contains('libheif'));
+  });
+
+  test('AVIF 编解码组件必须出现在清单里', () {
+    final names = nativeLibraryLicenses.map((e) => e.name).toSet();
+    expect(names, contains('libavif (avifenc/avifdec)'));
+    expect(names, contains('libaom'));
+    expect(names, contains('dav1d'));
   });
 
   test('许可全文随包可读，且包含许可名称', () async {

@@ -62,15 +62,15 @@ class PlatformCapabilities {
     AppTarget.windows => PlatformCapabilities(
       target: target,
       // HEIC/HEIF 走 FFI 调随包分发的 libheif（Windows 不像 Android 有系统解码器）
-      // v0.5/M3：加入 TIFF 双向、GIF 动图导出。AVIF 编解码库未随包分发前不开放
-      // （能力位如实，见 AvifCodec.isSupportedFor），待 libavif.dll 就位再放开。
-      importFormats: {..._mainstreamImport, ImageFormat.heic, ImageFormat.tiff},
+      // v0.5/M3：加入 TIFF 双向、GIF 动图导出、AVIF 双向（随包 avifenc/avifdec CLI）。
+      importFormats: {..._mainstreamImport, ImageFormat.heic, ImageFormat.tiff, ImageFormat.avif},
       exportFormats: {
         ..._mainstreamExport,
         ImageFormat.ico,
         ImageFormat.webp,
         ImageFormat.tiff,
         ImageFormat.gif,
+        ImageFormat.avif,
       },
       dragDropImport: true,
       pasteImport: false,
@@ -84,7 +84,9 @@ class PlatformCapabilities {
       // HEIC/HEIF 走系统解码通道（Android 8.0+ 内置 HEVC 静态图解码），
       // 其余端解不了 HEVC，能力位不开——宁可选择器里看不到，也不让用户
       // 选到打不开的文件。
-      importFormats: {..._mainstreamImport, ImageFormat.heic, ImageFormat.tiff},
+      // AVIF 走系统 ImageDecoder 解码（Android 12+），可导入；
+      // 系统无 AVIF 编码器，导出能力位不开——见 AvifCodec.canEncodeFor。
+      importFormats: {..._mainstreamImport, ImageFormat.heic, ImageFormat.tiff, ImageFormat.avif},
       // WebP 走系统 Bitmap.compress(WEBP)，零新增依赖；TIFF/GIF 纯 Dart
       exportFormats: {
         ..._mainstreamExport,

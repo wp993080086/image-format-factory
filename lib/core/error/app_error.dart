@@ -9,6 +9,8 @@ enum AppErrorCode {
   unsupportedEncoding('E-IMG-003', '暂不支持该图片编码（如 CMYK）'),
   pixelLimitExceeded('E-IMG-004', '图片过大，超出当前设备上限'),
   outOfMemory('E-IMG-005', '图片过大，设备内存不足，请换用更小的图片'),
+  // AVIF 需原生 AV1 编解码库，当前纯 Dart 构建未包含；导入时给出明确转码引导。
+  avifNotSupported('E-IMG-006', '暂不支持直接编辑 AVIF，请先用系统工具转为 PNG 或 JPEG 后再导入'),
 
   // --- 导出 / 保存 ---
   pathNotWritable('E-EXPORT-001', '无法写入该位置，请换一个文件夹'),

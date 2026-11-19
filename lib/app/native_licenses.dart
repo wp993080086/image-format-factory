@@ -72,4 +72,38 @@ const List<NativeLibraryLicense> nativeLibraryLicenses = [
     purpose: 'HEVC 解码（静态链接进 libheif，只解码不编码）',
     homepage: 'https://github.com/strukturag/libde265',
   ),
+  // AVIF：随包分发 libavif 官方的 avifenc / avifdec 静态可执行程序，
+  // 内部静态链接了下列编解码组件。均为 BSD / RBSD，可自由分发。
+  NativeLibraryLicense(
+    name: 'libavif (avifenc/avifdec)',
+    version: '1.4.2',
+    license: 'BSD-2-Clause',
+    assetPath: 'assets/licenses/libavif-LICENSE.txt',
+    purpose: 'AVIF 编解码 CLI（Windows 端经管道调用，静态链接下列组件）',
+    homepage: 'https://github.com/AOMediaCodec/libavif',
+  ),
+  NativeLibraryLicense(
+    name: 'libaom',
+    version: '3.14.1',
+    license: 'BSD-2-Clause',
+    assetPath: 'assets/licenses/aom-LICENSE.txt',
+    purpose: 'AV1 编码（静态链接进 avifenc）',
+    homepage: 'https://aomedia.googlesource.com/aom',
+  ),
+  NativeLibraryLicense(
+    name: 'dav1d',
+    version: '1.5.3',
+    license: 'BSD-2-Clause',
+    assetPath: 'assets/licenses/dav1d-LICENSE.txt',
+    purpose: 'AV1 解码（静态链接进 avifdec）',
+    homepage: 'https://code.videolan.org/videolan/dav1d',
+  ),
+  NativeLibraryLicense(
+    name: 'libyuv',
+    version: '1924',
+    license: 'BSD-3-Clause',
+    assetPath: 'assets/licenses/libyuv-LICENSE.txt',
+    purpose: 'YUV/RGB 转换（静态链接进 avifenc/avifdec）',
+    homepage: 'https://chromium.googlesource.com/libyuv/libyuv',
+  ),
 ];

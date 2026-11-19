@@ -95,6 +95,8 @@ install(FILES
   "${CMAKE_CURRENT_SOURCE_DIR}/native/bin/x64/webp.dll"
   "${CMAKE_CURRENT_SOURCE_DIR}/native/bin/x64/libsharpyuv.dll"
   "${CMAKE_CURRENT_SOURCE_DIR}/native/bin/x64/heif.dll"
+  "${CMAKE_CURRENT_SOURCE_DIR}/native/bin/x64/avifenc.exe"
+  "${CMAKE_CURRENT_SOURCE_DIR}/native/bin/x64/avifdec.exe"
   DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
   COMPONENT Runtime)
 
@@ -103,6 +105,10 @@ install(FILES
   "${CMAKE_CURRENT_SOURCE_DIR}/native/licenses/libwebp-COPYING"
   "${CMAKE_CURRENT_SOURCE_DIR}/native/licenses/libheif-COPYING"
   "${CMAKE_CURRENT_SOURCE_DIR}/native/licenses/libde265-COPYING"
+  "${CMAKE_CURRENT_SOURCE_DIR}/native/licenses/libavif-RBSD.txt"
+  "${CMAKE_CURRENT_SOURCE_DIR}/native/licenses/aom-BSD.txt"
+  "${CMAKE_CURRENT_SOURCE_DIR}/native/licenses/dav1d-BSD.txt"
+  "${CMAKE_CURRENT_SOURCE_DIR}/native/licenses/libyuv-BSD.txt"
   DESTINATION "${INSTALL_BUNDLE_LIB_DIR}/licenses"
   COMPONENT Runtime)
 

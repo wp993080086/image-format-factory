@@ -47,8 +47,10 @@ void main() {
       }
     });
 
-    test('AVIF 全端关闭（只做识别提示，不解码）', () {
-      for (final caps in [windows, android, harmony, web, mini]) {
+    test('AVIF 导入：Windows 走 CLI、Android 走系统解码，其余端关闭', () {
+      expect(windows.canImport(ImageFormat.avif), isTrue);
+      expect(android.canImport(ImageFormat.avif), isTrue);
+      for (final caps in [harmony, web, mini]) {
         expect(caps.canImport(ImageFormat.avif), isFalse);
       }
     });
@@ -113,7 +115,7 @@ void main() {
       expect(mini.canExport(ImageFormat.ico), isFalse);
     });
 
-    test('v0.5：TIFF/GIF 双端可导出，AVIF 原生库未就位全端关闭', () {
+    test('v0.5：TIFF/GIF 双端可导出，AVIF 仅 Windows 可导出', () {
       // TIFF：image 包纯 Dart 编码；GIF：静态/动图纯 Dart
       expect(windows.canExport(ImageFormat.tiff), isTrue);
       expect(android.canExport(ImageFormat.tiff), isTrue);
@@ -123,8 +125,9 @@ void main() {
         expect(caps.canExport(ImageFormat.tiff), isFalse);
         expect(caps.canExport(ImageFormat.gif), isFalse);
       }
-      // AVIF 需 libavif.dll + Android 原生通道，未就位前能力位如实关闭
-      for (final caps in [windows, android, harmony, web, mini]) {
+      // AVIF：Windows 随包 avifenc CLI 可编码；Android 系统无 AVIF 编码器。
+      expect(windows.canExport(ImageFormat.avif), isTrue);
+      for (final caps in [android, harmony, web, mini]) {
         expect(caps.canExport(ImageFormat.avif), isFalse, reason: '${caps.target}');
       }
     });
