@@ -189,10 +189,24 @@ class EditorController extends Notifier<EditorState> {
     );
   }
 
+  /// 是否处于一次连续编辑手势中（拖手柄 / 拖滑块）。
+  /// 期间 [updateAnnotation] 不再逐帧压撤销栈，手势结束只留一条快照。
+  bool _inAnnotationGesture = false;
+
+  /// 连续编辑开始：压一次历史快照。
+  void beginAnnotationGesture() {
+    if (_inAnnotationGesture) return;
+    _inAnnotationGesture = true;
+    _pushHistory();
+  }
+
+  /// 连续编辑结束。
+  void endAnnotationGesture() => _inAnnotationGesture = false;
+
   /// 替换指定索引的标注（手柄调整提交）。
   void updateAnnotation(int index, Annotation a) {
     if (!state.canEdit || index < 0 || index >= state.annotations.length) return;
-    _pushHistory();
+    if (!_inAnnotationGesture) _pushHistory();
     final next = List<Annotation>.from(state.annotations)..[index] = a;
     state = state.copyWith(annotations: next);
   }

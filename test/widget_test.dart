@@ -829,9 +829,9 @@ void main() {
     expect(find.text('上下拖动查看'), findsNothing);
   });
 
-  testWidgets('标注页：点按放码头像块/昵称条生成预设尺寸马赛克，且复用普通标注管线',
+  testWidgets('标注页：点按放码头像块/昵称条生成预设尺寸马赛克，落块后回到选择工具',
       (tester) async {
-    await _bootHome(tester, size: const ImageDimensions(128, 128));
+    await _bootHome(tester, size: const ImageDimensions(512, 512));
     await _importImage(tester);
     await tester.tap(find.text('标注'));
     await tester.pumpAndSettle();
@@ -842,7 +842,8 @@ void main() {
     List<Annotation> anns() => container.read(editorControllerProvider).annotations;
     final center = tester.getCenter(find.byKey(const ValueKey('annotateCanvas')));
 
-    // 头像块：单击落一个 40×40 的马赛克（落点为中心）
+    // 头像块：单击落一个正方形马赛克。尺寸按屏幕像素反算到原图，
+    // 故断言正方形 + 正方形比例，而非写死原图像素（分辨率无关）。
     await tester.tap(find.widgetWithText(ChoiceChip, '头像块'));
     await tester.pumpAndSettle();
     await tester.tapAt(center);
@@ -850,10 +851,14 @@ void main() {
     expect(anns().length, 1);
     final avatar = anns().last;
     expect(avatar.type, AnnotationType.mosaic, reason: '点按放码落到普通马赛克标注');
-    expect(avatar.x2 - avatar.x1, 40);
-    expect(avatar.y2 - avatar.y1, 40);
+    expect(avatar.x2 - avatar.x1, avatar.y2 - avatar.y1, reason: '头像块应为正方形');
 
-    // 昵称条：单击落一个 100×28 的马赛克
+    // 关键修复：落块后自动切回"选择"工具，再点同一处不应新增块
+    await tester.tapAt(center);
+    await tester.pumpAndSettle();
+    expect(anns().length, 1, reason: '落块后应为选择工具，再次触摸只移动不新建');
+
+    // 昵称条：单击落一个横向宽条马赛克（宽显著大于高）
     await tester.tap(find.widgetWithText(ChoiceChip, '昵称条'));
     await tester.pumpAndSettle();
     await tester.tapAt(center);
@@ -861,8 +866,7 @@ void main() {
     expect(anns().length, 2);
     final bar = anns().last;
     expect(bar.type, AnnotationType.mosaic);
-    expect(bar.x2 - bar.x1, 100);
-    expect(bar.y2 - bar.y1, 28);
+    expect(bar.x2 - bar.x1, greaterThan(bar.y2 - bar.y1), reason: '昵称条应为横向宽条');
 
     // 复用现有管线：落块即选中，属性条出现马赛克「块」滑块；撤销可用
     expect(find.text('块'), findsOneWidget);
@@ -896,6 +900,81 @@ void main() {
     );
     expect(tester.widget<IconButton>(undo).onPressed, isNull,
         reason: '空格拖动不应创建标注');
+  });
+
+  testWidgets('标注页：文字工具弹窗输入文案后放置，可再次编辑', (tester) async {
+    await _bootHome(tester, size: const ImageDimensions(256, 256));
+    await _importImage(tester);
+    await tester.tap(find.text('标注'));
+    await tester.pumpAndSettle();
+
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(Scaffold).first),
+    );
+    List<Annotation> anns() => container.read(editorControllerProvider).annotations;
+
+    await tester.tap(find.widgetWithText(ChoiceChip, '文字'));
+    await tester.pumpAndSettle();
+    final rect = tester.getRect(find.byKey(const ValueKey('annotateCanvas')));
+    await tester.tapAt(Offset(rect.left + 60, rect.top + 60));
+    await tester.pumpAndSettle();
+
+    // 弹出输入框，未确认前不创建标注
+    expect(find.text('添加文字标注'), findsOneWidget);
+    expect(anns().isEmpty, isTrue, reason: '弹窗确认前不应凭空出现文字');
+
+    await tester.enterText(find.byType(TextField).first, '你好世界');
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, '添加'));
+    await tester.pumpAndSettle();
+
+    expect(anns().length, 1);
+    expect(anns().last.type, AnnotationType.text);
+    expect(anns().last.text, '你好世界');
+
+    // 属性条可再次编辑文案（输入即生效的入口存在）
+    expect(find.byKey(const ValueKey('annotationTextEdit')), findsOneWidget);
+  });
+
+  testWidgets('标注页：滑块连续拖动只产生一次撤销', (tester) async {
+    await _bootHome(tester, size: const ImageDimensions(256, 256));
+    await _importImage(tester);
+    await tester.tap(find.text('标注'));
+    await tester.pumpAndSettle();
+
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(Scaffold).first),
+    );
+    List<Annotation> anns() => container.read(editorControllerProvider).annotations;
+
+    // 先画一个矩形并选中
+    await tester.tap(find.widgetWithText(ChoiceChip, '矩形'));
+    await tester.pumpAndSettle();
+    final rect = tester.getRect(find.byKey(const ValueKey('annotateCanvas')));
+    await tester.dragFrom(
+      Offset(rect.left + 60, rect.top + 60),
+      const Offset(80, 60),
+    );
+    await tester.pumpAndSettle();
+    final initialWidth = anns().last.strokeWidth;
+
+    // 拖动"线宽"滑块多次改变值（模拟连续手势）
+    final lineWidthSlider = find.byWidgetPredicate(
+      (w) => w is Slider && w.max == 20 && w.min == 1,
+    );
+    expect(lineWidthSlider, findsOneWidget);
+    await tester.drag(lineWidthSlider, const Offset(60, 0));
+    await tester.pumpAndSettle();
+    expect(anns().last.strokeWidth, isNot(initialWidth), reason: '线宽应已改变');
+
+    // 一次撤销即回到调整前的线宽（而非逐帧回退）
+    final undo = find.byWidgetPredicate(
+      (w) => w is IconButton && w.tooltip == '撤销 (Ctrl+Z)',
+    );
+    await tester.tap(undo);
+    await tester.pumpAndSettle();
+    expect(anns().last.strokeWidth, initialWidth,
+        reason: '连续拖动应合并为一次撤销');
   });
 
 }

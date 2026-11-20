@@ -440,3 +440,118 @@ List<Annotation> transformAnnotations(
       ),
   ];
 }
+
+/// 生成"打码预览叠层"：透明底，仅马赛克/涂抹区域填入真实像素块。
+///
+/// 用于在标注画布上实现"所见即所得"——画出来的就是导出时的真实马赛克，
+/// 而不是半透明占位色块。其余类型（文字/线/形状）由 UI 层的 painter 叠加，
+/// 不在本叠层内，故不会遮挡底图模糊效果。
+///
+/// [previewWidth]/[previewHeight] 为预览图尺寸，[sourceWidth]/[sourceHeight]
+/// 为原图尺寸；标注坐标存原图系，这里按比例映射到预览系。
+/// 无打码标注时返回 null（调用方直接用原底图，零开销）。
+Uint8List? buildMosaicPreviewOverlay({
+  required Uint8List previewPng,
+  required int sourceWidth,
+  required int sourceHeight,
+  required int previewWidth,
+  required int previewHeight,
+  required List<Annotation> annotations,
+}) {
+  final mosaicAnns = annotations
+      .where((a) =>
+          a.type == AnnotationType.mosaic || a.type == AnnotationType.brush)
+      .toList();
+  if (mosaicAnns.isEmpty) return null;
+
+  final base = img.decodeImage(previewPng);
+  if (base == null) return null;
+  // 以解码后的实际像素尺寸为准：调用方传入的 previewWidth/Height 可能与实际
+  // PNG 不符（如测试里用 1×1 占位图配任意声明尺寸），照传值映射会坐标越界。
+  final pw = base.width;
+  final ph = base.height;
+
+  // 映射原图坐标 → 预览坐标；按比例缩放块大小/笔刷半径。
+  final sx = pw / sourceWidth;
+  final sy = ph / sourceHeight;
+  final scaled = mosaicAnns.map((a) {
+    int mapX(int v) => (v * sx).round().clamp(0, pw - 1);
+    int mapY(int v) => (v * sy).round().clamp(0, ph - 1);
+    if (a.type == AnnotationType.brush) {
+      return a.copyWith(
+        points: [
+          for (var i = 0; i < a.points.length; i += 2) ...[
+            mapX(a.points[i]),
+            mapY(a.points[i + 1]),
+          ],
+        ],
+        brushRadius: math.max(1, (a.brushRadius * sx).round()),
+        mosaicBlock: math.max(2, (a.mosaicBlock * sx).round()),
+      );
+    }
+    return a.copyWith(
+      x1: mapX(a.x1),
+      y1: mapY(a.y1),
+      x2: mapX(a.x2),
+      y2: mapY(a.y2),
+      mosaicBlock: math.max(2, (a.mosaicBlock * sx).round()),
+    );
+  }).toList();
+
+  // 在工作副本上做真实打码，再把被打码的矩形区域拷进透明叠层。
+  // 底图统一转 4 通道，保证与叠层通道数一致（否则 setPixel 按颜色通道写入会越界）。
+  final work = base.convert(numChannels: 4);
+  for (final a in scaled) {
+    if (a.type == AnnotationType.mosaic) {
+      _applyMosaic(work, a);
+    } else {
+      _applyBrush(work, a);
+    }
+  }
+  final overlay = img.Image(
+    width: pw,
+    height: ph,
+    numChannels: 4,
+  );
+  for (final a in scaled) {
+    final r = _originRect(a);
+    final left = r.left.clamp(0, pw - 1);
+    final top = r.top.clamp(0, ph - 1);
+    final right = r.right.clamp(0, pw - 1);
+    final bottom = r.bottom.clamp(0, ph - 1);
+    for (var y = top; y <= bottom; y++) {
+      for (var x = left; x <= right; x++) {
+        overlay.setPixel(x, y, work.getPixel(x, y));
+      }
+    }
+  }
+  return img.encodePng(overlay);
+}
+
+/// 简单的整数矩形（避免工具层依赖 dart:ui 的 Rect）。
+class _IntRect {
+  const _IntRect(this.left, this.top, this.right, this.bottom);
+  final int left, top, right, bottom;
+}
+
+/// 与 UI 层同语义的矩形（这里按已映射的预览坐标）。
+_IntRect _originRect(Annotation a) {
+  if (a.type == AnnotationType.brush && a.points.length >= 2) {
+    var minX = a.points[0], maxX = a.points[0];
+    var minY = a.points[1], maxY = a.points[1];
+    for (var i = 2; i < a.points.length; i += 2) {
+      minX = math.min(minX, a.points[i]);
+      maxX = math.max(maxX, a.points[i]);
+      minY = math.min(minY, a.points[i + 1]);
+      maxY = math.max(maxY, a.points[i + 1]);
+    }
+    final r = a.brushRadius;
+    return _IntRect(minX - r, minY - r, maxX + r, maxY + r);
+  }
+  return _IntRect(
+    math.min(a.x1, a.x2),
+    math.min(a.y1, a.y2),
+    math.max(a.x1, a.x2),
+    math.max(a.y1, a.y2),
+  );
+}
