@@ -876,6 +876,38 @@ void main() {
     expect(tester.widget<IconButton>(undo).onPressed, isNotNull);
   });
 
+  testWidgets('标注页：选中标注后拖动右下手柄可改变尺寸', (tester) async {
+    await _bootHome(tester, size: const ImageDimensions(512, 512));
+    await _importImage(tester);
+    await tester.tap(find.text('标注'));
+    await tester.pumpAndSettle();
+
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(Scaffold).first),
+    );
+    List<Annotation> anns() => container.read(editorControllerProvider).annotations;
+
+    // 矩形工具拖出一个框，落块后自动选中
+    await tester.tap(find.widgetWithText(ChoiceChip, '矩形'));
+    await tester.pumpAndSettle();
+    final rect = tester.getRect(find.byKey(const ValueKey('annotateCanvas')));
+    final start = Offset(rect.left + 80, rect.top + 80);
+    const dragDelta = Offset(120, 100);
+    await tester.dragFrom(start, dragDelta);
+    await tester.pumpAndSettle();
+    expect(anns().length, 1);
+    final before = anns().last;
+    expect(container.read(editorControllerProvider).selectedAnnotation, 0);
+
+    // 右下手柄位于框的右下角屏幕坐标，向外拖 40px 应变大
+    final br = start + dragDelta;
+    await tester.dragFrom(br, const Offset(50, 40));
+    await tester.pumpAndSettle();
+    final after = anns().last;
+    expect(after.x2, greaterThan(before.x2), reason: '拖动右下手柄应放大宽度');
+    expect(after.y2, greaterThan(before.y2), reason: '拖动右下手柄应放大高度');
+  });
+
   testWidgets('标注页：按住空格拖动只平移视图，不新建标注', (tester) async {
     await _bootHome(tester, size: const ImageDimensions(200, 1200));
     await _importImage(tester);

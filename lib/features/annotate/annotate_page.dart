@@ -187,15 +187,6 @@ class _AnnotateEditorState extends ConsumerState<_AnnotateEditor> {
     super.initState();
     final s = widget.state.decoded!.sourceSize;
     _fitMode = s.height >= s.width * 1.5 ? _FitMode.width : _FitMode.contain;
-    if (_annotations.isNotEmpty) _refreshOverlay();
-  }
-
-  @override
-  void didUpdateWidget(covariant _AnnotateEditor old) {
-    super.didUpdateWidget(old);
-    if (!identical(old.state.annotations, widget.state.annotations)) {
-      _refreshOverlay();
-    }
   }
 
   void _setFitMode(_FitMode mode) => setState(() {
@@ -211,44 +202,6 @@ class _AnnotateEditorState extends ConsumerState<_AnnotateEditor> {
 
   /// 新建标注草稿（原图坐标）。
   Annotation? _draft;
-
-  /// 马赛克/涂抹的真实像素预览叠层（异步生成，避免阻塞 UI）。
-  Uint8List? _overlayPng;
-  String? _overlayKey;
-
-  /// 只需打码类标注参与叠层，生成缓存键以跳过无变化的重算。
-  String _mosaicFingerprint(List<Annotation> anns) => anns
-      .where((a) =>
-          a.type == AnnotationType.mosaic || a.type == AnnotationType.brush)
-      .map((a) =>
-          '${a.type}:${a.x1},${a.y1},${a.x2},${a.y2}:${a.mosaicBlock}:${a.brushRadius}:${a.brushMode}:${a.points.join(",")}')
-      .join('|');
-
-  void _refreshOverlay() {
-    final fp = _mosaicFingerprint(_annotations);
-    if (fp == _overlayKey) return;
-    _overlayKey = fp;
-    if (fp.isEmpty) {
-      _overlayPng = null;
-      return;
-    }
-    final previewPng = widget.state.decoded!.previewPng;
-    final source = _source;
-    final preview = widget.state.decoded!.previewSize;
-    final anns = _annotations;
-    // 预览图长边 ≤2048，微任务异步执行即可；不用 Isolate.run——其闭包
-    // 会捕获 State/Flutter 对象，测试环境报 unsendable。
-    Future(() => buildMosaicPreviewOverlay(
-          previewPng: previewPng,
-          sourceWidth: source.width,
-          sourceHeight: source.height,
-          previewWidth: preview.width,
-          previewHeight: preview.height,
-          annotations: anns,
-        )).then((png) {
-      if (mounted && _overlayKey == fp) setState(() => _overlayPng = png);
-    });
-  }
 
   final _canvasFocus = FocusNode(debugLabel: 'annotateCanvas');
 
@@ -1002,22 +955,6 @@ class _AnnotateEditorState extends ConsumerState<_AnnotateEditor> {
                             // 与导出时「先模糊后叠标注」的顺序一致。
                             child: _blurredPreview(widget.state.blur),
                           ),
-                          // 真实打码叠层：马赛克/涂抹区域显示导出的真实像素块，
-                          // 盖在模糊底图之上、其余标注之下（所见即所得）。
-                          if (_overlayPng != null)
-                            Positioned(
-                              left: _origin(box).dx,
-                              top: _origin(box).dy,
-                              width: _fitSize(box).width,
-                              height: _fitSize(box).height,
-                              child: IgnorePointer(
-                                child: Image.memory(
-                                  _overlayPng!,
-                                  fit: BoxFit.fill,
-                                  gaplessPlayback: true,
-                                ),
-                              ),
-                            ),
                           Positioned.fill(
                             child: IgnorePointer(
                               child: CustomPaint(
@@ -1319,20 +1256,17 @@ class _AnnotationPainter extends CustomPainter {
         canvas.drawOval(rect, paint);
         break;
       case AnnotationType.mosaic:
-        // 已提交的马赛克由真实像素叠层绘制；草稿拖动中才画半透明示意。
-        if (isDraft) {
-          canvas.drawRect(
-            rect,
-            Paint()..color = color.withValues(alpha: 0.35),
-          );
-        } else if (isSelected) {
-          // 已提交：只画细边框帮助识别范围，不盖住真实像素块
-          canvas.drawRect(rect, paint..strokeWidth = 1.5);
-        }
+        // 固定雪花点：预览直接用与导出相同的 snowGray 画块，零像素计算。
+        _drawSnowRect(canvas, a.x1, a.y1, a.x2, a.y2, a.mosaicBlock);
+        if (isSelected) canvas.drawRect(rect, paint..strokeWidth = 1.5);
         break;
       case AnnotationType.brush:
-        // 草稿拖动中画实时轨迹；已提交由叠层显示真实打码，不重复绘制
-        if (isDraft) _drawBrushPreview(canvas, a);
+        // 马赛克涂抹画雪花轨迹；毛玻璃（blur）用半透明示意（无法用雪花表达）。
+        if (a.brushMode == BrushMode.blur) {
+          _drawBrushPreview(canvas, a);
+        } else {
+          _drawSnowStroke(canvas, a);
+        }
         break;
     }
 
@@ -1357,6 +1291,62 @@ class _AnnotationPainter extends CustomPainter {
         canvas.drawCircle(h, r + 1, outline);
         canvas.drawCircle(h, r, hp);
       }
+    }
+  }
+
+  /// 在原图矩形区域画固定雪花点。块起点、块坐标与导出 _applyMosaic 一致。
+  void _drawSnowRect(
+      Canvas canvas, int x1, int y1, int x2, int y2, int blockSize) {
+    final left = math.min(x1, x2);
+    final top = math.min(y1, y2);
+    final right = math.max(x1, x2);
+    final bottom = math.max(y1, y2);
+    final block = math.max(2, blockSize);
+    for (var by = top; by <= bottom; by += block) {
+      for (var bx = left; bx <= right; bx += block) {
+        final g = snowGray(bx ~/ block, by ~/ block);
+        final tl = _p(bx.toDouble(), by.toDouble());
+        final br = _p(
+          math.min(bx + block, right + 1).toDouble(),
+          math.min(by + block, bottom + 1).toDouble(),
+        );
+        canvas.drawRect(
+          Rect.fromPoints(tl, br),
+          Paint()..color = Color.fromARGB(255, g, g, g),
+        );
+      }
+    }
+  }
+
+  /// 涂抹马赛克：沿轨迹按块填雪花点，块坐标取全局网格（与导出一致）。
+  void _drawSnowStroke(Canvas canvas, Annotation a) {
+    final pts = a.points;
+    if (pts.length < 2) return;
+    final block = math.max(2, a.mosaicBlock);
+    // 收集轨迹覆盖的块坐标（按圆刷半径外扩），去重后逐块画雪花方块。
+    final covered = <(int, int)>{};
+    for (var i = 0; i < pts.length; i += 2) {
+      final cx = pts[i];
+      final cy = pts[i + 1];
+      final r = a.brushRadius;
+      for (var by = ((cy - r) ~/ block) * block;
+          by <= cy + r;
+          by += block) {
+        for (var bx = ((cx - r) ~/ block) * block;
+            bx <= cx + r;
+            bx += block) {
+          covered.add((bx, by));
+        }
+      }
+    }
+    for (final (bx, by) in covered) {
+      final g = snowGray(bx ~/ block, by ~/ block);
+      final tl = _p(bx.toDouble(), by.toDouble());
+      final br = _p((bx + block).toDouble(), (by + block).toDouble());
+      canvas.drawRect(
+        Rect.fromPoints(tl, br),
+        Paint()..color = Color.fromARGB(255, g, g, g),
+      );
     }
   }
 

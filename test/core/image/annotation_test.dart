@@ -21,6 +21,11 @@ int _changedPixels(img.Image a, img.Image b) {
   return n;
 }
 
+void _expectSnowGray(num g) {
+  expect(g, greaterThanOrEqualTo(48));
+  expect(g, lessThanOrEqualTo(208));
+}
+
 void main() {
   group('标注合成', () {
     test('空标注返回同一对象', () {
@@ -99,15 +104,46 @@ void main() {
       expect(src.getPixel(30, 30).r, before);
     });
 
-    test('马赛克把白色区域打码为混合色', () {
+    test('矩形马赛克用固定雪花点盖住区域，不依赖底图颜色', () {
       final src = _canvas();
-      expect(src.getPixel(80, 80).r, 255);
+      expect(src.getPixel(80, 80).r, 255); // 原为白区
       final out = applyAnnotations(src, const [
         Annotation(type: AnnotationType.mosaic, x1: 50, y1: 50, x2: 70, y2: 70, mosaicBlock: 40),
       ]);
-      // 打码块跨黑(0)/白(255)边界，平均值应落在中间
-      expect(out.getPixel(65, 65).r, lessThan(255));
-      expect(out.getPixel(65, 65).r, greaterThan(0));
+      // 雪花灰度固定落在 48~208，与底图黑白都不同
+      final g = out.getPixel(65, 65).r;
+      _expectSnowGray(g);
+      expect(g, lessThan(255));
+      expect(g, greaterThan(0));
+    });
+
+    test('雪花点确定性：同块同色、块间有变化', () {
+      expect(snowGray(3, 5), snowGray(3, 5), reason: '同一块坐标必须同色');
+      final colors = {
+        for (var bx = 0; bx < 8; bx++)
+          for (var by = 0; by < 8; by++) snowGray(bx, by),
+      };
+      expect(colors.length, greaterThan(1), reason: '不同块应有不同雪花灰度');
+      for (final g in colors) {
+        _expectSnowGray(g);
+      }
+    });
+
+    test('同一雪花图案盖在不同底图上，结果像素完全一致', () {
+      final black = img.Image(width: 40, height: 40, numChannels: 4);
+      img.fill(black, color: img.ColorRgba8(0, 0, 0, 255));
+      final white = img.Image(width: 40, height: 40, numChannels: 4);
+      img.fill(white, color: img.ColorRgba8(255, 255, 255, 255));
+      const a = Annotation(
+        type: AnnotationType.mosaic, x1: 4, y1: 4, x2: 36, y2: 36, mosaicBlock: 8,
+      );
+      final outBlack = applyAnnotations(black, [a]);
+      final outWhite = applyAnnotations(white, [a]);
+      // 打码区完全被雪花覆盖，与底图无关
+      expect(outBlack.getPixel(20, 20).r, outWhite.getPixel(20, 20).r);
+      // 区外保持各自底图
+      expect(outBlack.getPixel(1, 1).r, 0);
+      expect(outWhite.getPixel(1, 1).r, 255);
     });
   });
 group('标注坐标变换（裁剪+缩放后合成）', () {
@@ -183,13 +219,12 @@ group('涂抹打码（v0.6）', () {
     mosaicBlock: 16,
   );
 
-  test('马赛克模式改变轨迹覆盖处的像素，且覆盖处变混合色', () {
+  test('马赛克模式改变轨迹覆盖处的像素，覆盖处变雪花灰度', () {
     final src = _canvas();
     final out = applyAnnotations(src, [stroke]);
-    // (60,70) 处于黑白边界所在块，平均后应变为介于 0~255 的混合色
+    // (60,70) 被雪花点覆盖，灰度落在固定范围 48~208
     final pixel = out.getPixel(60, 70).r;
-    expect(pixel, greaterThan(0));
-    expect(pixel, lessThan(255));
+    _expectSnowGray(pixel);
     expect(_changedPixels(src, out), greaterThan(0));
   });
 
