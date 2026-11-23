@@ -6,6 +6,21 @@ import '../../core/image/image_format.dart';
 import '../../core/image/watermark.dart';
 import 'batch_controller.dart';
 
+const _positionLabels = <WatermarkPosition, String>{
+  WatermarkPosition.topLeft: '左上',
+  WatermarkPosition.topRight: '右上',
+  WatermarkPosition.bottomLeft: '左下',
+  WatermarkPosition.bottomRight: '右下',
+  WatermarkPosition.center: '居中',
+};
+
+const _watermarkColors = <String, int>{
+  '白': 0xFFFFFFFF,
+  '黑': 0xFF000000,
+  '红': 0xFFFF0000,
+  '蓝': 0xFF2196F3,
+};
+
 /// 批量任务页（v0.5 / M3）：选多图 → 一次配置 → 批量出图，单图 = N=1。
 class BatchPage extends ConsumerWidget {
   const BatchPage({super.key});
@@ -75,15 +90,28 @@ class _PickerCard extends StatelessWidget {
             Row(
               children: [
                 Expanded(
-                  child: Text('选择图片', style: Theme.of(context).textTheme.titleMedium),
+                  child: Text(
+                    '选择图片',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
                 ),
                 FilledButton.icon(
                   onPressed: state.busy ? null : notifier.pickImages,
                   icon: const Icon(Icons.photo_library_outlined),
-                  label: const Text('选择多张'),
+                  label: Text(state.items.isEmpty ? '选择图片' : '继续添加'),
                 ),
               ],
             ),
+            if (state.skippedDuplicates > 0)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  '已跳过 ${state.skippedDuplicates} 张重复图片',
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+              ),
             if (state.items.isNotEmpty) ...[
               const Divider(height: 24),
               Text('已选 ${state.items.length} 张：'),
@@ -94,6 +122,13 @@ class _PickerCard extends StatelessWidget {
                   contentPadding: EdgeInsets.zero,
                   leading: const Icon(Icons.image_outlined),
                   title: Text(i.fileName),
+                  trailing: state.busy
+                      ? null
+                      : IconButton(
+                          tooltip: '移除 ${i.fileName}',
+                          icon: const Icon(Icons.close_outlined),
+                          onPressed: () => notifier.removeItem(i.id),
+                        ),
                 ),
               ),
             ],
@@ -140,9 +175,7 @@ class _ConfigCard extends StatelessWidget {
               ],
               onChanged: (v) {
                 if (v != null) {
-                  notifier.updateConfig(
-                    config.copyWithTargetFormat(v),
-                  );
+                  notifier.updateConfig(config.copyWithTargetFormat(v));
                 }
               },
             ),
@@ -226,16 +259,90 @@ class _ConfigCard extends StatelessWidget {
                 ),
               ),
             ),
-            if (config.watermark != null)
+            if (config.watermark != null) ...[
               TextFormField(
                 initialValue: config.watermark!.text,
-                decoration: const InputDecoration(labelText: '水印文字（ASCII）'),
+                decoration: const InputDecoration(labelText: '水印文字'),
                 onChanged: (v) => notifier.updateConfig(
+                  config.copyWith(watermark: config.watermark!.copyWithText(v)),
+                ),
+              ),
+              const SizedBox(height: 8),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('全屏重复（平铺）'),
+                subtitle: const Text('开启后忽略下方位置'),
+                value: config.watermark!.repeat,
+                onChanged: (on) => notifier.updateConfig(
                   config.copyWith(
-                    watermark: config.watermark!.copyWithText(v),
+                    watermark: config.watermark!.copyWith(repeat: on),
                   ),
                 ),
               ),
+              if (!config.watermark!.repeat)
+                DropdownButtonFormField<WatermarkPosition>(
+                  initialValue: config.watermark!.position,
+                  decoration: const InputDecoration(labelText: '位置'),
+                  items: [
+                    for (final p in WatermarkPosition.values)
+                      DropdownMenuItem(
+                        value: p,
+                        child: Text(_positionLabels[p]!),
+                      ),
+                  ],
+                  onChanged: (v) {
+                    if (v != null) {
+                      notifier.updateConfig(
+                        config.copyWith(
+                          watermark: config.watermark!.copyWith(position: v),
+                        ),
+                      );
+                    }
+                  },
+                ),
+              Text('字号：${config.watermark!.fontSize}'),
+              Slider(
+                value: config.watermark!.fontSize.toDouble(),
+                min: 12,
+                max: 96,
+                divisions: 84,
+                onChanged: (v) => notifier.updateConfig(
+                  config.copyWith(
+                    watermark: config.watermark!.copyWith(fontSize: v.round()),
+                  ),
+                ),
+              ),
+              Text('透明度：${config.watermark!.opacity}%'),
+              Slider(
+                value: config.watermark!.opacity.toDouble(),
+                min: 10,
+                max: 100,
+                divisions: 90,
+                onChanged: (v) => notifier.updateConfig(
+                  config.copyWith(
+                    watermark: config.watermark!.copyWith(opacity: v.round()),
+                  ),
+                ),
+              ),
+              Text('颜色', style: Theme.of(context).textTheme.bodySmall),
+              Wrap(
+                spacing: 8,
+                children: [
+                  for (final entry in _watermarkColors.entries)
+                    ChoiceChip(
+                      label: Text(entry.key),
+                      selected: config.watermark!.colorArgb == entry.value,
+                      onSelected: (_) => notifier.updateConfig(
+                        config.copyWith(
+                          watermark: config.watermark!.copyWith(
+                            colorArgb: entry.value,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ],
             const SizedBox(height: 8),
             Text(
               '调色/水印/标注的核心算法已就绪，批量统一套用。',
@@ -298,7 +405,10 @@ class _ProgressCard extends StatelessWidget {
             LinearProgressIndicator(value: p?.fraction ?? 0),
             if (p?.currentName != null) ...[
               const SizedBox(height: 8),
-              Text('当前：${p!.currentName}', style: Theme.of(context).textTheme.bodySmall),
+              Text(
+                '当前：${p!.currentName}',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
             ],
           ],
         ),

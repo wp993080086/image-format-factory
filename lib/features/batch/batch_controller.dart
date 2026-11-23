@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/batch/batch_executor.dart';
@@ -8,13 +10,7 @@ import '../../services/batch/batch_pipeline.dart';
 import '../../services/file/import_service.dart';
 
 /// 批量页阶段。
-enum BatchStage {
-  empty,
-  picking,
-  configuring,
-  running,
-  done,
-}
+enum BatchStage { empty, picking, configuring, running, done }
 
 /// 批量页状态。
 class BatchState {
@@ -24,6 +20,7 @@ class BatchState {
     this.config = const BatchConfig(),
     this.progress,
     this.results = const [],
+    this.skippedDuplicates = 0,
   });
 
   final BatchStage stage;
@@ -31,6 +28,9 @@ class BatchState {
   final BatchConfig config;
   final BatchProgress? progress;
   final List<BatchItemResult> results;
+
+  /// 最近一次选图因重复被跳过的张数（追加去重提示）。
+  final int skippedDuplicates;
 
   int get successCount => results.where((r) => r.isSuccess).length;
   int get failCount => results.length - successCount;
@@ -42,6 +42,7 @@ class BatchState {
     BatchConfig? config,
     BatchProgress? progress,
     List<BatchItemResult>? results,
+    int? skippedDuplicates,
   }) {
     return BatchState(
       stage: stage ?? this.stage,
@@ -49,6 +50,7 @@ class BatchState {
       config: config ?? this.config,
       progress: progress ?? this.progress,
       results: results ?? this.results,
+      skippedDuplicates: skippedDuplicates ?? this.skippedDuplicates,
     );
   }
 }
@@ -60,28 +62,71 @@ class BatchController extends Notifier<BatchState> {
   @override
   BatchState build() => const BatchState();
 
-  /// 选多图 → 进入配置态。
+  /// 选多图 → 追加到现有列表（已选的不会被替换）。
+  /// 去重依据：文件名 + 内容字节同时相同才算重复（拍板结论）。
   Future<void> pickImages() async {
     if (state.busy) return;
-    state = state.copyWith(stage: BatchStage.picking, progress: null, results: const []);
+    state = state.copyWith(
+      stage: BatchStage.picking,
+      progress: null,
+      results: const [],
+    );
     final imports = await ref.read(importServiceProvider).pickImages();
     if (imports.isEmpty) {
-      state = state.copyWith(stage: BatchStage.empty);
+      state = state.copyWith(
+        stage: state.items.isEmpty ? BatchStage.empty : BatchStage.configuring,
+        skippedDuplicates: 0,
+      );
       return;
     }
-    final items = <BatchItem>[];
-    for (var i = 0; i < imports.length; i++) {
-      final r = imports[i];
+    final items = List<BatchItem>.from(state.items);
+    var nextId = items.isEmpty
+        ? 0
+        : items.map((e) => e.id).reduce(math.max) + 1;
+    final seen = <String>{
+      for (final i in items) _dedupeKey(i.fileName, i.sourceBytes),
+    };
+    var skipped = 0;
+    for (final r in imports) {
+      final key = _dedupeKey(r.fileName, r.bytes);
+      if (!seen.add(key)) {
+        skipped++;
+        continue;
+      }
       items.add(
         BatchItem(
-          id: i,
+          id: nextId++,
           fileName: r.fileName,
           sourceBytes: r.bytes,
           animated: r.isAnimated,
         ),
       );
     }
-    state = state.copyWith(stage: BatchStage.configuring, items: items);
+    state = state.copyWith(
+      stage: BatchStage.configuring,
+      items: items,
+      skippedDuplicates: skipped,
+    );
+  }
+
+  /// 去重键：文件名 + 内容长度 + 折叠哈希，避免同名不同内容被误判。
+  static String _dedupeKey(String name, List<int> bytes) {
+    var h = 0;
+    for (final b in bytes) {
+      h = ((h << 5) - h + b) & 0x7fffffff;
+    }
+    return '$name:${bytes.length}:$h';
+  }
+
+  /// 从已选列表移除一张（按 id，避免重名误删）。
+  void removeItem(int id) {
+    if (state.busy) return;
+    final items = state.items.where((i) => i.id != id).toList();
+    state = state.copyWith(
+      items: items,
+      stage: items.isEmpty ? BatchStage.empty : BatchStage.configuring,
+      skippedDuplicates: 0,
+    );
   }
 
   /// 更新配置。
@@ -126,5 +171,6 @@ class BatchController extends Notifier<BatchState> {
       ref.read(capabilitiesProvider).canExport(format);
 }
 
-final batchControllerProvider =
-    NotifierProvider<BatchController, BatchState>(BatchController.new);
+final batchControllerProvider = NotifierProvider<BatchController, BatchState>(
+  BatchController.new,
+);

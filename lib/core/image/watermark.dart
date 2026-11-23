@@ -5,13 +5,7 @@ import 'package:image/image.dart' as img;
 import 'cjk_text.dart';
 
 /// 文字水印锚点位置（PRD 需求池一.1：四角 + 居中）。
-enum WatermarkPosition {
-  topLeft,
-  topRight,
-  bottomLeft,
-  bottomRight,
-  center,
-}
+enum WatermarkPosition { topLeft, topRight, bottomLeft, bottomRight, center }
 
 /// 文字水印参数（v0.5 / M3）。
 ///
@@ -26,6 +20,7 @@ class TextWatermark {
     this.rotation = 0,
     this.position = WatermarkPosition.bottomRight,
     this.margin = 16,
+    this.repeat = false,
   });
 
   /// 水印文字（支持中文与 ASCII，常用汉字取 GB2312 一级字库）。
@@ -48,17 +43,32 @@ class TextWatermark {
   /// 距边缘的像素边距。
   final int margin;
 
+  /// 全屏重复（平铺）铺满；开启时忽略 [position]。
+  final bool repeat;
+
   bool get isEmpty => text.trim().isEmpty || opacity <= 0;
 
-  TextWatermark copyWithText(String text) => TextWatermark(
-        text: text,
-        fontSize: fontSize,
-        colorArgb: colorArgb,
-        opacity: opacity,
-        rotation: rotation,
-        position: position,
-        margin: margin,
-      );
+  TextWatermark copyWithText(String text) => copyWith(text: text);
+
+  TextWatermark copyWith({
+    String? text,
+    int? fontSize,
+    int? colorArgb,
+    int? opacity,
+    int? rotation,
+    WatermarkPosition? position,
+    int? margin,
+    bool? repeat,
+  }) => TextWatermark(
+    text: text ?? this.text,
+    fontSize: fontSize ?? this.fontSize,
+    colorArgb: colorArgb ?? this.colorArgb,
+    opacity: opacity ?? this.opacity,
+    rotation: rotation ?? this.rotation,
+    position: position ?? this.position,
+    margin: margin ?? this.margin,
+    repeat: repeat ?? this.repeat,
+  );
 }
 
 /// 把文字水印合成到位图，返回新图（不修改入参）。
@@ -101,15 +111,26 @@ img.Image applyTextWatermark(img.Image source, TextWatermark w) {
     );
   }
 
-  final pos = _anchor(
-    w.position,
-    source.width,
-    source.height,
-    placed.width,
-    placed.height,
-    w.margin,
-  );
-  img.compositeImage(result, placed, dstX: pos.x, dstY: pos.y);
+  if (w.repeat) {
+    // 全屏平铺：网格间距在文字尺寸基础上留白，至少 1px 避免死循环。
+    final gapX = math.max(1, (placed.width * 0.6).round());
+    final gapY = math.max(1, (placed.height * 0.6).round());
+    for (var y = w.margin; y < result.height; y += placed.height + gapY) {
+      for (var x = w.margin; x < result.width; x += placed.width + gapX) {
+        img.compositeImage(result, placed, dstX: x, dstY: y);
+      }
+    }
+  } else {
+    final pos = _anchor(
+      w.position,
+      source.width,
+      source.height,
+      placed.width,
+      placed.height,
+      w.margin,
+    );
+    img.compositeImage(result, placed, dstX: pos.x, dstY: pos.y);
+  }
   return result;
 }
 
@@ -127,7 +148,10 @@ img.Image applyTextWatermark(img.Image source, TextWatermark w) {
     WatermarkPosition.topLeft => (x: m, y: m),
     WatermarkPosition.topRight => (x: math.max(0, maxX - m), y: m),
     WatermarkPosition.bottomLeft => (x: m, y: math.max(0, maxY - m)),
-    WatermarkPosition.bottomRight => (x: math.max(0, maxX - m), y: math.max(0, maxY - m)),
+    WatermarkPosition.bottomRight => (
+      x: math.max(0, maxX - m),
+      y: math.max(0, maxY - m),
+    ),
     WatermarkPosition.center => (x: (maxX / 2).round(), y: (maxY / 2).round()),
   };
 }

@@ -45,23 +45,24 @@ class AnnotatePage extends ConsumerWidget {
             icon: const Icon(Icons.delete_sweep_outlined),
             onPressed: state.annotations.isEmpty
                 ? null
-                : () => ref.read(editorControllerProvider.notifier).clearAnnotations(),
+                : () => ref
+                      .read(editorControllerProvider.notifier)
+                      .clearAnnotations(),
           ),
         ],
       ),
       body: switch (state.stage) {
         EditorStage.empty => _EmptyView(onPick: onPick),
-        EditorStage.detecting ||
-        EditorStage.decoding => const Center(child: CircularProgressIndicator()),
+        EditorStage.detecting || EditorStage.decoding => const Center(
+          child: CircularProgressIndicator(),
+        ),
         EditorStage.editable => _AnnotateEditor(
-            key: ValueKey(
-              'anno-${state.decoded!.sourceSize.width}x${state.decoded!.sourceSize.height}',
-            ),
-            state: state,
+          key: ValueKey(
+            'anno-${state.decoded!.sourceSize.width}x${state.decoded!.sourceSize.height}',
           ),
-        _ => Center(
-            child: Text(state.failure?.message ?? '出错了，请重新选图'),
-          ),
+          state: state,
+        ),
+        _ => Center(child: Text(state.failure?.message ?? '出错了，请重新选图')),
       },
     );
   }
@@ -73,17 +74,17 @@ class _EmptyView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.draw, size: 64, color: Colors.grey),
-            const SizedBox(height: 16),
-            const Text('先选一张图片开始标注'),
-            const SizedBox(height: 16),
-            FilledButton(onPressed: onPick, child: const Text('选择图片')),
-          ],
-        ),
-      );
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Icon(Icons.draw, size: 64, color: Colors.grey),
+        const SizedBox(height: 16),
+        const Text('先选一张图片开始标注'),
+        const SizedBox(height: 16),
+        FilledButton(onPressed: onPick, child: const Text('选择图片')),
+      ],
+    ),
+  );
 }
 
 /// 工具类型：select 为选择/调整，其余为新建标注。
@@ -106,28 +107,28 @@ enum _Tool {
   final String label;
 
   AnnotationType? get annotationType => switch (this) {
-        _Tool.text => AnnotationType.text,
-        _Tool.line => AnnotationType.line,
-        _Tool.arrow => AnnotationType.arrow,
-        _Tool.rectangle => AnnotationType.rectangle,
-        _Tool.circle => AnnotationType.circle,
-        _Tool.ellipse => AnnotationType.ellipse,
-        _Tool.mosaic => AnnotationType.mosaic,
-        _Tool.brush => AnnotationType.brush,
-        // 点按放码落到普通马赛克标注，完全复用选中/手柄/撤销/导出/批量管线
-        _Tool.avatarBlock => AnnotationType.mosaic,
-        _Tool.nicknameBar => AnnotationType.mosaic,
-        _Tool.select => null,
-      };
+    _Tool.text => AnnotationType.text,
+    _Tool.line => AnnotationType.line,
+    _Tool.arrow => AnnotationType.arrow,
+    _Tool.rectangle => AnnotationType.rectangle,
+    _Tool.circle => AnnotationType.circle,
+    _Tool.ellipse => AnnotationType.ellipse,
+    _Tool.mosaic => AnnotationType.mosaic,
+    _Tool.brush => AnnotationType.brush,
+    // 点按放码落到普通马赛克标注，完全复用选中/手柄/撤销/导出/批量管线
+    _Tool.avatarBlock => AnnotationType.mosaic,
+    _Tool.nicknameBar => AnnotationType.mosaic,
+    _Tool.select => null,
+  };
 
   /// 点按放码的默认块尺寸（**屏幕逻辑像素**，非原图像素）。
   /// 落块时按当前视图缩放反算成原图坐标，保证屏幕上看到的始终是这么大——
   /// 高分辨率图片缩到屏幕后，若按原图像素放块会小到只剩几个像素（真机反馈）。
   Size? get tapPresetSize => switch (this) {
-        _Tool.avatarBlock => const Size(48, 48),
-        _Tool.nicknameBar => const Size(70, 28),
-        _ => null,
-      };
+    _Tool.avatarBlock => const Size(48, 48),
+    _Tool.nicknameBar => const Size(70, 28),
+    _ => null,
+  };
 }
 
 /// 拖拽模式。
@@ -190,10 +191,10 @@ class _AnnotateEditorState extends ConsumerState<_AnnotateEditor> {
   }
 
   void _setFitMode(_FitMode mode) => setState(() {
-        _fitMode = mode;
-        _scale = 1;
-        _offset = Offset.zero;
-      });
+    _fitMode = mode;
+    _scale = 1;
+    _offset = Offset.zero;
+  });
 
   /// 拖拽期间的原图坐标快照。
   Offset _startOrigin = Offset.zero;
@@ -433,8 +434,14 @@ class _AnnotateEditorState extends ConsumerState<_AnnotateEditor> {
         final sy = fit.height * _scale / _source.height;
         final w = (preset.width / sx).round().clamp(1, _source.width);
         final h = (preset.height / sy).round().clamp(1, _source.height);
-        x1 = (_startOrigin.dx - w / 2).round().clamp(0, _source.width - w).toInt();
-        y1 = (_startOrigin.dy - h / 2).round().clamp(0, _source.height - h).toInt();
+        x1 = (_startOrigin.dx - w / 2)
+            .round()
+            .clamp(0, _source.width - w)
+            .toInt();
+        y1 = (_startOrigin.dy - h / 2)
+            .round()
+            .clamp(0, _source.height - h)
+            .toInt();
         x2 = x1 + w;
         y2 = y1 + h;
       }
@@ -545,7 +552,8 @@ class _AnnotateEditorState extends ConsumerState<_AnnotateEditor> {
     // controller 交给对话框持有，_dialog 关闭后再由 Flutter 回收；
     // 这里不能提前 dispose——退出动画期间 TextField 仍会引用它。
     if (result == null || result.text.isEmpty || !mounted) return;
-    // 框按画布上的实际文字尺寸生成，四角手柄才能贴着文字；
+    // 框按绘制端同一套 TextPainter 度量生成，四角手柄才能贴着文字；
+    // 不加额外 padding——否则框右下多出一圈，看起来"文字偏上、框偏大"。
     // 框存原图坐标（除以 sx/sy），视图缩放只影响显示。
     const fontSize = 24;
     final fit = _fitSize(MediaQuery.sizeOf(context));
@@ -554,12 +562,18 @@ class _AnnotateEditorState extends ConsumerState<_AnnotateEditor> {
     final tp = TextPainter(
       text: TextSpan(
         text: result.text,
-        style: TextStyle(fontSize: fontSize * _scale, fontFamily: 'Noto Sans SC'),
+        style: TextStyle(
+          fontSize: fontSize * _scale,
+          fontFamily: 'Noto Sans SC',
+        ),
       ),
       textDirection: TextDirection.ltr,
     )..layout();
-    final w = (tp.width + 8) / sx;
-    final h = (tp.height + 8) / sy;
+    // 用字号作为尺寸下限：TextPainter 的 height 是行高，在部分环境（尤其
+    // 中文字体缺失 fallback 时）会远小于字形实际高度，导致框过扁、手柄重叠、
+    // 文字看起来"偏上"。下限保证框至少能包住一个字。
+    final w = math.max(tp.width / sx, fontSize.toDouble());
+    final h = math.max(tp.height / sy, fontSize.toDouble());
     _controller.addAnnotation(
       Annotation(
         type: AnnotationType.text,
@@ -600,11 +614,7 @@ class _AnnotateEditorState extends ConsumerState<_AnnotateEditor> {
               ..add(x2)
               ..add(y2);
             setState(() {
-              _draft = base.copyWith(
-                points: pts,
-                x2: x2,
-                y2: y2,
-              );
+              _draft = base.copyWith(points: pts, x2: x2, y2: y2);
             });
           }
           return;
@@ -624,7 +634,8 @@ class _AnnotateEditorState extends ConsumerState<_AnnotateEditor> {
         if (base == null || idx == null) return;
         final dx = (now.dx - _startOrigin.dx).round();
         final dy = (now.dy - _startOrigin.dy).round();
-        final shifted = base.type == AnnotationType.brush && base.points.length >= 2
+        final shifted =
+            base.type == AnnotationType.brush && base.points.length >= 2
             ? [
                 for (var i = 0; i < base.points.length; i += 2) ...[
                   base.points[i] + dx,
@@ -725,7 +736,8 @@ class _AnnotateEditorState extends ConsumerState<_AnnotateEditor> {
           _controller.addAnnotation(draft);
         } else if (draft.type == AnnotationType.text) {
           _controller.addAnnotation(
-              draft.copyWith(x2: draft.x1 + 120, y2: draft.y1 + 30));
+            draft.copyWith(x2: draft.x1 + 120, y2: draft.y1 + 30),
+          );
         }
       }
     }
@@ -798,7 +810,8 @@ class _AnnotateEditorState extends ConsumerState<_AnnotateEditor> {
 
   KeyEventResult _onKey(FocusNode node, KeyEvent event) {
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
-    final ctrl = HardwareKeyboard.instance.isControlPressed ||
+    final ctrl =
+        HardwareKeyboard.instance.isControlPressed ||
         HardwareKeyboard.instance.isMetaPressed;
     if (ctrl && event.logicalKey == LogicalKeyboardKey.keyZ) {
       final shift = HardwareKeyboard.instance.isShiftPressed;
@@ -828,7 +841,12 @@ class _AnnotateEditorState extends ConsumerState<_AnnotateEditor> {
         _buildBlurBar(),
         Expanded(child: _buildCanvas()),
         // 属性条避开系统底部手势区，避免手机上"太靠下"够不着
-        const SafeArea(top: false, left: false, right: false, child: _PropertyBar()),
+        const SafeArea(
+          top: false,
+          left: false,
+          right: false,
+          child: _PropertyBar(),
+        ),
       ],
     );
   }
@@ -841,7 +859,9 @@ class _AnnotateEditorState extends ConsumerState<_AnnotateEditor> {
       padding: const EdgeInsets.symmetric(horizontal: 12),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surfaceContainerLow,
-        border: Border(bottom: BorderSide(color: Theme.of(context).dividerColor)),
+        border: Border(
+          bottom: BorderSide(color: Theme.of(context).dividerColor),
+        ),
       ),
       child: Row(
         children: [
@@ -850,7 +870,11 @@ class _AnnotateEditorState extends ConsumerState<_AnnotateEditor> {
           SegmentedButton<_FitMode>(
             segments: [
               for (final m in _FitMode.values)
-                ButtonSegment(value: m, label: Text(m.label), icon: Icon(m.icon)),
+                ButtonSegment(
+                  value: m,
+                  label: Text(m.label),
+                  icon: Icon(m.icon),
+                ),
             ],
             selected: {_fitMode},
             onSelectionChanged: (v) => _setFitMode(v.first),
@@ -875,7 +899,9 @@ class _AnnotateEditorState extends ConsumerState<_AnnotateEditor> {
       padding: const EdgeInsets.symmetric(horizontal: 12),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surfaceContainerLowest,
-        border: Border(bottom: BorderSide(color: Theme.of(context).dividerColor)),
+        border: Border(
+          bottom: BorderSide(color: Theme.of(context).dividerColor),
+        ),
       ),
       child: Row(
         children: [
@@ -965,46 +991,46 @@ class _AnnotateEditorState extends ConsumerState<_AnnotateEditor> {
                 onScaleUpdate: (d) => _onScaleUpdate(d, box),
                 onScaleEnd: _onScaleEnd,
                 child: ClipRect(
-                child: Stack(
-                  children: [
-                    Transform(
-                      transform: _viewMatrix(box),
-                      child: Stack(
-                        children: [
-                          Positioned(
-                            left: _origin(box).dx,
-                            top: _origin(box).dy,
-                            width: _fitSize(box).width,
-                            height: _fitSize(box).height,
-                            // 整图模糊实时预览：仅糊底图，标注层在其上保持清晰，
-                            // 与导出时「先模糊后叠标注」的顺序一致。
-                            child: _blurredPreview(widget.state.blur),
-                          ),
-                          Positioned.fill(
-                            child: IgnorePointer(
-                              child: CustomPaint(
-                                painter: _AnnotationPainter(
-                                  annotations: _annotations,
-                                  draft: _draft,
-                                  selected: _selected,
-                                  source: _source,
-                                  fit: _fitSize(box),
-                                  origin: _origin(box),
-                                  scale: _scale,
+                  child: Stack(
+                    children: [
+                      Transform(
+                        transform: _viewMatrix(box),
+                        child: Stack(
+                          children: [
+                            Positioned(
+                              left: _origin(box).dx,
+                              top: _origin(box).dy,
+                              width: _fitSize(box).width,
+                              height: _fitSize(box).height,
+                              // 整图模糊实时预览：仅糊底图，标注层在其上保持清晰，
+                              // 与导出时「先模糊后叠标注」的顺序一致。
+                              child: _blurredPreview(widget.state.blur),
+                            ),
+                            Positioned.fill(
+                              child: IgnorePointer(
+                                child: CustomPaint(
+                                  painter: _AnnotationPainter(
+                                    annotations: _annotations,
+                                    draft: _draft,
+                                    selected: _selected,
+                                    source: _source,
+                                    fit: _fitSize(box),
+                                    origin: _origin(box),
+                                    scale: _scale,
+                                  ),
                                 ),
                               ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
           ),
-        ),
-      );
+        );
       },
     );
   }
@@ -1037,92 +1063,96 @@ class _PropertyBar extends ConsumerWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-          // 文字、线、箭头、形状都要能改颜色；马赛克/涂抹的颜色是占位色，不给改
-          if (a.type != AnnotationType.mosaic &&
-              a.type != AnnotationType.brush)
-            IconButton(
-              tooltip: '颜色',
-              icon: Icon(Icons.palette, color: color),
-              onPressed: () => _pickColor(context, ref, a, idx),
-            ),
-          if (a.type != AnnotationType.text &&
-              a.type != AnnotationType.mosaic &&
-              a.type != AnnotationType.brush)
-            SizedBox(
-              width: 170,
-              child: Row(
-                children: [
-                  const Text('线宽'),
-                  Expanded(
-                    child: Slider(
-                      value: a.strokeWidth.toDouble().clamp(1, 20),
-                      min: 1,
-                      max: 20,
-                      onChangeStart: (_) => c.beginAnnotationGesture(),
-                      onChangeEnd: (_) => c.endAnnotationGesture(),
-                      onChanged: (v) => c.updateAnnotation(
-                        idx,
-                        a.copyWith(strokeWidth: v.round()),
+            // 文字、线、箭头、形状都要能改颜色；马赛克/涂抹的颜色是占位色，不给改
+            if (a.type != AnnotationType.mosaic &&
+                a.type != AnnotationType.brush)
+              IconButton(
+                tooltip: '颜色',
+                icon: Icon(Icons.palette, color: color),
+                onPressed: () => _pickColor(context, ref, a, idx),
+              ),
+            if (a.type != AnnotationType.text &&
+                a.type != AnnotationType.mosaic &&
+                a.type != AnnotationType.brush)
+              SizedBox(
+                width: 170,
+                child: Row(
+                  children: [
+                    const Text('线宽'),
+                    Expanded(
+                      child: Slider(
+                        value: a.strokeWidth.toDouble().clamp(1, 20),
+                        min: 1,
+                        max: 20,
+                        onChangeStart: (_) => c.beginAnnotationGesture(),
+                        onChangeEnd: (_) => c.endAnnotationGesture(),
+                        onChanged: (v) => c.updateAnnotation(
+                          idx,
+                          a.copyWith(strokeWidth: v.round()),
+                        ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-          // 文案在放置弹窗里输入，字号由画布四角手柄等比缩放，
-          // 属性条不再提供字号滑块（避免与手柄缩放两套尺寸互相打架）。
-          if (a.type == AnnotationType.mosaic)
-            SizedBox(
-              width: 170,
-              child: Row(
-                children: [
-                  const Text('块'),
-                  Expanded(
-                    child: Slider(
-                      value: a.mosaicBlock.toDouble().clamp(2, 40),
-                      min: 2,
-                      max: 40,
-                      onChangeStart: (_) => c.beginAnnotationGesture(),
-                      onChangeEnd: (_) => c.endAnnotationGesture(),
-                      onChanged: (v) =>
-                          c.updateAnnotation(idx, a.copyWith(mosaicBlock: v.round())),
+            // 文案在放置弹窗里输入，字号由画布四角手柄等比缩放，
+            // 属性条不再提供字号滑块（避免与手柄缩放两套尺寸互相打架）。
+            if (a.type == AnnotationType.mosaic)
+              SizedBox(
+                width: 170,
+                child: Row(
+                  children: [
+                    const Text('块'),
+                    Expanded(
+                      child: Slider(
+                        value: a.mosaicBlock.toDouble().clamp(2, 40),
+                        min: 2,
+                        max: 40,
+                        onChangeStart: (_) => c.beginAnnotationGesture(),
+                        onChangeEnd: (_) => c.endAnnotationGesture(),
+                        onChanged: (v) => c.updateAnnotation(
+                          idx,
+                          a.copyWith(mosaicBlock: v.round()),
+                        ),
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-          if (a.type == AnnotationType.brush) ...[
-            SegmentedButton<BrushMode>(
-              segments: const [
-                ButtonSegment(value: BrushMode.mosaic, label: Text('马赛克')),
-                ButtonSegment(value: BrushMode.blur, label: Text('模糊')),
-              ],
-              selected: {a.brushMode},
-              onSelectionChanged: (v) =>
-                  c.updateAnnotation(idx, a.copyWith(brushMode: v.first)),
-              showSelectedIcon: false,
-              style: const ButtonStyle(visualDensity: VisualDensity.compact),
-            ),
-            SizedBox(
-              width: 160,
-              child: Row(
-                children: [
-                  const Text('笔刷'),
-                  Expanded(
-                    child: Slider(
-                      value: a.brushRadius.toDouble().clamp(4, 60),
-                      min: 4,
-                      max: 60,
-                      onChangeStart: (_) => c.beginAnnotationGesture(),
-                      onChangeEnd: (_) => c.endAnnotationGesture(),
-                      onChanged: (v) =>
-                          c.updateAnnotation(idx, a.copyWith(brushRadius: v.round())),
+            if (a.type == AnnotationType.brush) ...[
+              SegmentedButton<BrushMode>(
+                segments: const [
+                  ButtonSegment(value: BrushMode.mosaic, label: Text('马赛克')),
+                  ButtonSegment(value: BrushMode.blur, label: Text('模糊')),
+                ],
+                selected: {a.brushMode},
+                onSelectionChanged: (v) =>
+                    c.updateAnnotation(idx, a.copyWith(brushMode: v.first)),
+                showSelectedIcon: false,
+                style: const ButtonStyle(visualDensity: VisualDensity.compact),
+              ),
+              SizedBox(
+                width: 160,
+                child: Row(
+                  children: [
+                    const Text('笔刷'),
+                    Expanded(
+                      child: Slider(
+                        value: a.brushRadius.toDouble().clamp(4, 60),
+                        min: 4,
+                        max: 60,
+                        onChangeStart: (_) => c.beginAnnotationGesture(),
+                        onChangeEnd: (_) => c.endAnnotationGesture(),
+                        onChanged: (v) => c.updateAnnotation(
+                          idx,
+                          a.copyWith(brushRadius: v.round()),
+                        ),
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
           ],
         ),
       ),
@@ -1166,10 +1196,9 @@ class _PropertyBar extends ConsumerWidget {
       ),
     );
     if (picked != null && context.mounted) {
-      ref.read(editorControllerProvider.notifier).updateAnnotation(
-            idx,
-            a.copyWith(colorArgb: picked),
-          );
+      ref
+          .read(editorControllerProvider.notifier)
+          .updateAnnotation(idx, a.copyWith(colorArgb: picked));
     }
   }
 }
@@ -1195,9 +1224,9 @@ class _AnnotationPainter extends CustomPainter {
   final double scale;
 
   Offset _p(double x, double y) => Offset(
-        origin.dx + x * fit.width / source.width,
-        origin.dy + y * fit.height / source.height,
-      );
+    origin.dx + x * fit.width / source.width,
+    origin.dy + y * fit.height / source.height,
+  );
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -1283,7 +1312,8 @@ class _AnnotationPainter extends CustomPainter {
         ..color = Colors.black
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1;
-      final handles = a.type == AnnotationType.line || a.type == AnnotationType.arrow
+      final handles =
+          a.type == AnnotationType.line || a.type == AnnotationType.arrow
           ? [p1, p2]
           : [
               Offset(rect.left, rect.top),
@@ -1301,7 +1331,13 @@ class _AnnotationPainter extends CustomPainter {
 
   /// 在原图矩形区域画固定雪花点。块起点、块坐标与导出 _applyMosaic 一致。
   void _drawSnowRect(
-      Canvas canvas, int x1, int y1, int x2, int y2, int blockSize) {
+    Canvas canvas,
+    int x1,
+    int y1,
+    int x2,
+    int y2,
+    int blockSize,
+  ) {
     final left = math.min(x1, x2);
     final top = math.min(y1, y2);
     final right = math.max(x1, x2);
@@ -1334,12 +1370,8 @@ class _AnnotationPainter extends CustomPainter {
       final cx = pts[i];
       final cy = pts[i + 1];
       final r = a.brushRadius;
-      for (var by = ((cy - r) ~/ block) * block;
-          by <= cy + r;
-          by += block) {
-        for (var bx = ((cx - r) ~/ block) * block;
-            bx <= cx + r;
-            bx += block) {
+      for (var by = ((cy - r) ~/ block) * block; by <= cy + r; by += block) {
+        for (var bx = ((cx - r) ~/ block) * block; bx <= cx + r; bx += block) {
           covered.add((bx, by));
         }
       }
@@ -1361,10 +1393,11 @@ class _AnnotationPainter extends CustomPainter {
     final pts = a.points;
     if (pts.isEmpty) return;
     final paint = Paint()
-      ..color = (a.brushMode == BrushMode.blur
-              ? const Color(0xFF42A5F5)
-              : const Color(0xFFFF7043))
-          .withValues(alpha: 0.4)
+      ..color =
+          (a.brushMode == BrushMode.blur
+                  ? const Color(0xFF42A5F5)
+                  : const Color(0xFFFF7043))
+              .withValues(alpha: 0.4)
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round
       ..strokeJoin = StrokeJoin.round
@@ -1374,7 +1407,11 @@ class _AnnotationPainter extends CustomPainter {
         _p(pts[i].toDouble(), pts[i + 1].toDouble()),
     ];
     if (screen.length == 1) {
-      canvas.drawCircle(screen.first, paint.strokeWidth / 2, paint..style = PaintingStyle.fill);
+      canvas.drawCircle(
+        screen.first,
+        paint.strokeWidth / 2,
+        paint..style = PaintingStyle.fill,
+      );
       return;
     }
     canvas.drawPoints(ui.PointMode.polygon, screen, paint);

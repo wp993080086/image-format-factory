@@ -286,8 +286,7 @@ class _FeatureGrid extends StatelessWidget {
     _FeatureItem(Icons.photo_size_select_large, '尺寸与比例', AppRoutes.resize),
     _FeatureItem(Icons.swap_horiz, '格式转换', AppRoutes.exportPanel),
     _FeatureItem(Icons.compress, '图片压缩', AppRoutes.exportPanel),
-    _FeatureItem(Icons.blur_on, '涂抹打码 / 模糊', AppRoutes.annotate),
-    _FeatureItem(Icons.draw, '标注', AppRoutes.annotate),
+    _FeatureItem(Icons.draw, '标注与打码', AppRoutes.annotate),
   ];
 
   @override

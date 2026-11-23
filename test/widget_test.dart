@@ -166,7 +166,7 @@ void main() {
     expect(find.text('尺寸与比例'), findsOneWidget);
     expect(find.text('格式转换'), findsOneWidget);
     expect(find.text('图片压缩'), findsOneWidget);
-    expect(find.text('标注'), findsOneWidget);
+    expect(find.text('标注与打码'), findsOneWidget);
   });
 
   testWidgets('未导入图片时功能入口不可点击', (tester) async {
@@ -700,7 +700,7 @@ void main() {
     await tester.tap(find.text('批量处理（新）'));
     await tester.pumpAndSettle();
     expect(find.text('批量处理'), findsWidgets);
-    expect(find.text('选择多张'), findsOneWidget);
+    expect(find.text('选择图片'), findsWidgets);
     expect(find.text('统一配置'), findsNothing); // 未选图不显示配置
   });
 
@@ -735,15 +735,28 @@ void main() {
     await _bootHome(tester, size: const ImageDimensions(128, 128));
     await _importImage(tester);
 
-    await tester.tap(find.text('标注'));
+    await tester.tap(find.text('标注与打码'));
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('annotateCanvas')), findsOneWidget);
     for (final label in [
-      '选择', '文字', '直线', '箭头', '矩形', '圆形', '椭圆', '马赛克', '涂抹打码',
-      '头像块', '昵称条',
+      '选择',
+      '文字',
+      '直线',
+      '箭头',
+      '矩形',
+      '圆形',
+      '椭圆',
+      '马赛克',
+      '涂抹打码',
+      '头像块',
+      '昵称条',
     ]) {
-      expect(find.widgetWithText(ChoiceChip, label), findsOneWidget, reason: label);
+      expect(
+        find.widgetWithText(ChoiceChip, label),
+        findsOneWidget,
+        reason: label,
+      );
     }
 
     // 选矩形工具，在画布上拖出一个框
@@ -756,29 +769,44 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final undo = find.byWidgetPredicate((w) => w is IconButton && w.tooltip == '撤销 (Ctrl+Z)');
-    expect(tester.widget<IconButton>(undo).onPressed, isNotNull,
-        reason: '创建标注后应可撤销');
+    final undo = find.byWidgetPredicate(
+      (w) => w is IconButton && w.tooltip == '撤销 (Ctrl+Z)',
+    );
+    expect(
+      tester.widget<IconButton>(undo).onPressed,
+      isNotNull,
+      reason: '创建标注后应可撤销',
+    );
 
     await tester.tap(undo);
     await tester.pumpAndSettle();
-    final clear = find.byWidgetPredicate((w) => w is IconButton && w.tooltip == '清空标注');
-    expect(tester.widget<IconButton>(clear).onPressed, isNull,
-        reason: '撤销后无标注，清空应禁用');
+    final clear = find.byWidgetPredicate(
+      (w) => w is IconButton && w.tooltip == '清空标注',
+    );
+    expect(
+      tester.widget<IconButton>(clear).onPressed,
+      isNull,
+      reason: '撤销后无标注，清空应禁用',
+    );
 
-    final redo = find.byWidgetPredicate((w) => w is IconButton && w.tooltip == '重做 (Ctrl+Shift+Z)');
+    final redo = find.byWidgetPredicate(
+      (w) => w is IconButton && w.tooltip == '重做 (Ctrl+Shift+Z)',
+    );
     expect(tester.widget<IconButton>(redo).onPressed, isNotNull);
     await tester.tap(redo);
     await tester.pumpAndSettle();
-    expect(tester.widget<IconButton>(clear).onPressed, isNotNull,
-        reason: '重做后应有标注');
+    expect(
+      tester.widget<IconButton>(clear).onPressed,
+      isNotNull,
+      reason: '重做后应有标注',
+    );
   });
 
   testWidgets('标注页：涂抹打码工具可拖拽创建并进入属性条', (tester) async {
     await _bootHome(tester, size: const ImageDimensions(128, 128));
     await _importImage(tester);
 
-    await tester.tap(find.text('标注'));
+    await tester.tap(find.text('标注与打码'));
     await tester.pumpAndSettle();
 
     await tester.tap(find.widgetWithText(ChoiceChip, '涂抹打码'));
@@ -799,7 +827,7 @@ void main() {
     await _bootHome(tester, size: const ImageDimensions(128, 128));
     await _importImage(tester);
 
-    await tester.tap(find.text('标注'));
+    await tester.tap(find.text('标注与打码'));
     await tester.pumpAndSettle();
 
     expect(find.text('整图模糊'), findsOneWidget);
@@ -815,7 +843,7 @@ void main() {
     // 高/宽 = 6，属于长图：默认 width 模式（顶对齐、可上下拖）
     await _bootHome(tester, size: const ImageDimensions(200, 1200));
     await _importImage(tester);
-    await tester.tap(find.text('标注'));
+    await tester.tap(find.text('标注与打码'));
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('annotateCanvas')), findsOneWidget);
@@ -829,18 +857,20 @@ void main() {
     expect(find.text('上下拖动查看'), findsNothing);
   });
 
-  testWidgets('标注页：点按放码头像块/昵称条生成预设尺寸马赛克，命中已有块不再新建',
-      (tester) async {
+  testWidgets('标注页：点按放码头像块/昵称条生成预设尺寸马赛克，命中已有块不再新建', (tester) async {
     await _bootHome(tester, size: const ImageDimensions(512, 512));
     await _importImage(tester);
-    await tester.tap(find.text('标注'));
+    await tester.tap(find.text('标注与打码'));
     await tester.pumpAndSettle();
 
     final container = ProviderScope.containerOf(
       tester.element(find.byType(Scaffold).first),
     );
-    List<Annotation> anns() => container.read(editorControllerProvider).annotations;
-    final center = tester.getCenter(find.byKey(const ValueKey('annotateCanvas')));
+    List<Annotation> anns() =>
+        container.read(editorControllerProvider).annotations;
+    final center = tester.getCenter(
+      find.byKey(const ValueKey('annotateCanvas')),
+    );
 
     // 头像块：单击落一个正方形马赛克。尺寸按屏幕像素反算到原图，
     // 故断言正方形 + 正方形比例，而非写死原图像素（分辨率无关）。
@@ -881,13 +911,14 @@ void main() {
   testWidgets('标注页：选中标注后拖动右下手柄可改变尺寸', (tester) async {
     await _bootHome(tester, size: const ImageDimensions(512, 512));
     await _importImage(tester);
-    await tester.tap(find.text('标注'));
+    await tester.tap(find.text('标注与打码'));
     await tester.pumpAndSettle();
 
     final container = ProviderScope.containerOf(
       tester.element(find.byType(Scaffold).first),
     );
-    List<Annotation> anns() => container.read(editorControllerProvider).annotations;
+    List<Annotation> anns() =>
+        container.read(editorControllerProvider).annotations;
 
     // 矩形工具拖出一个框，落块后自动选中
     await tester.tap(find.widgetWithText(ChoiceChip, '矩形'));
@@ -913,7 +944,7 @@ void main() {
   testWidgets('标注页：按住空格拖动只平移视图，不新建标注', (tester) async {
     await _bootHome(tester, size: const ImageDimensions(200, 1200));
     await _importImage(tester);
-    await tester.tap(find.text('标注'));
+    await tester.tap(find.text('标注与打码'));
     await tester.pumpAndSettle();
 
     // 选矩形工具（不带空格时会创建），再按住空格拖动画布
@@ -932,20 +963,24 @@ void main() {
     final undo = find.byWidgetPredicate(
       (w) => w is IconButton && w.tooltip == '撤销 (Ctrl+Z)',
     );
-    expect(tester.widget<IconButton>(undo).onPressed, isNull,
-        reason: '空格拖动不应创建标注');
+    expect(
+      tester.widget<IconButton>(undo).onPressed,
+      isNull,
+      reason: '空格拖动不应创建标注',
+    );
   });
 
   testWidgets('标注页：文字工具弹窗输入文案后放置，可再次编辑', (tester) async {
     await _bootHome(tester, size: const ImageDimensions(256, 256));
     await _importImage(tester);
-    await tester.tap(find.text('标注'));
+    await tester.tap(find.text('标注与打码'));
     await tester.pumpAndSettle();
 
     final container = ProviderScope.containerOf(
       tester.element(find.byType(Scaffold).first),
     );
-    List<Annotation> anns() => container.read(editorControllerProvider).annotations;
+    List<Annotation> anns() =>
+        container.read(editorControllerProvider).annotations;
 
     await tester.tap(find.widgetWithText(ChoiceChip, '文字'));
     await tester.pumpAndSettle();
@@ -975,13 +1010,14 @@ void main() {
   testWidgets('标注页：滑块连续拖动只产生一次撤销', (tester) async {
     await _bootHome(tester, size: const ImageDimensions(256, 256));
     await _importImage(tester);
-    await tester.tap(find.text('标注'));
+    await tester.tap(find.text('标注与打码'));
     await tester.pumpAndSettle();
 
     final container = ProviderScope.containerOf(
       tester.element(find.byType(Scaffold).first),
     );
-    List<Annotation> anns() => container.read(editorControllerProvider).annotations;
+    List<Annotation> anns() =>
+        container.read(editorControllerProvider).annotations;
 
     // 先画一个矩形并选中
     await tester.tap(find.widgetWithText(ChoiceChip, '矩形'));
@@ -1009,20 +1045,20 @@ void main() {
     );
     await tester.tap(undo);
     await tester.pumpAndSettle();
-    expect(anns().last.strokeWidth, initialWidth,
-        reason: '连续拖动应合并为一次撤销');
+    expect(anns().last.strokeWidth, initialWidth, reason: '连续拖动应合并为一次撤销');
   });
 
   testWidgets('标注页：文字工具下点已有文字本体不重复弹窗，可拖动定位', (tester) async {
     await _bootHome(tester, size: const ImageDimensions(256, 256));
     await _importImage(tester);
-    await tester.tap(find.text('标注'));
+    await tester.tap(find.text('标注与打码'));
     await tester.pumpAndSettle();
 
     final container = ProviderScope.containerOf(
       tester.element(find.byType(Scaffold).first),
     );
-    List<Annotation> anns() => container.read(editorControllerProvider).annotations;
+    List<Annotation> anns() =>
+        container.read(editorControllerProvider).annotations;
 
     // 文字工具创建一条文字（工具保持为文字，不切回选择）
     await tester.tap(find.widgetWithText(ChoiceChip, '文字'));
@@ -1034,15 +1070,20 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, '添加'));
     await tester.pumpAndSettle();
     expect(anns().length, 1);
-    final textRect = tester.getRect(find.byKey(const ValueKey('annotateCanvas')));
+    final textRect = tester.getRect(
+      find.byKey(const ValueKey('annotateCanvas')),
+    );
     final textStart = Offset(textRect.left + 80, textRect.top + 80);
 
     // 再次点文字本体（文字工具仍激活）：命中优先 → 选中，不再弹输入框
     await tester.tapAt(textStart);
     await tester.pumpAndSettle();
     expect(find.text('添加文字标注'), findsNothing, reason: '点已有文字不应重复弹窗');
-    expect(container.read(editorControllerProvider).selectedAnnotation, 0,
-        reason: '点文字本体应选中它');
+    expect(
+      container.read(editorControllerProvider).selectedAnnotation,
+      0,
+      reason: '点文字本体应选中它',
+    );
 
     // 拖动文字本体可改变位置（x1 增大）
     final before = anns().first.x1;
@@ -1054,13 +1095,14 @@ void main() {
   testWidgets('标注页：文字四角手柄等比缩放，字号随框同步变化', (tester) async {
     await _bootHome(tester, size: const ImageDimensions(256, 256));
     await _importImage(tester);
-    await tester.tap(find.text('标注'));
+    await tester.tap(find.text('标注与打码'));
     await tester.pumpAndSettle();
 
     final container = ProviderScope.containerOf(
       tester.element(find.byType(Scaffold).first),
     );
-    List<Annotation> anns() => container.read(editorControllerProvider).annotations;
+    List<Annotation> anns() =>
+        container.read(editorControllerProvider).annotations;
 
     await tester.tap(find.widgetWithText(ChoiceChip, '文字'));
     await tester.pumpAndSettle();
@@ -1073,13 +1115,15 @@ void main() {
     expect(anns().length, 1);
 
     // 方形图按 contain 适配：屏幕坐标 = 画布左上角 + origin + 原图坐标 * fit/source
-    final box = tester.getRect(find.byKey(const ValueKey('annotateCanvas'))).size;
+    final box = tester
+        .getRect(find.byKey(const ValueKey('annotateCanvas')))
+        .size;
     final fit = box.width < box.height ? box.width : box.height;
     final origin = Offset((box.width - fit) / 2, (box.height - fit) / 2);
     Offset screen(double x, double y) => Offset(
-          rect.left + origin.dx + x * fit / 256,
-          rect.top + origin.dy + y * fit / 256,
-        );
+      rect.left + origin.dx + x * fit / 256,
+      rect.top + origin.dy + y * fit / 256,
+    );
 
     final before = anns().first;
     // 拖右下角手柄向外：字号变大、框变大，宽高比不变、对角（左上角）不动。
@@ -1103,25 +1147,30 @@ void main() {
   testWidgets('标注页：昵称条预设宽高比为 70:28', (tester) async {
     await _bootHome(tester, size: const ImageDimensions(512, 512));
     await _importImage(tester);
-    await tester.tap(find.text('标注'));
+    await tester.tap(find.text('标注与打码'));
     await tester.pumpAndSettle();
 
     final container = ProviderScope.containerOf(
       tester.element(find.byType(Scaffold).first),
     );
-    List<Annotation> anns() => container.read(editorControllerProvider).annotations;
+    List<Annotation> anns() =>
+        container.read(editorControllerProvider).annotations;
 
     await tester.tap(find.widgetWithText(ChoiceChip, '昵称条'));
     await tester.pumpAndSettle();
-    final center = tester.getCenter(find.byKey(const ValueKey('annotateCanvas')));
+    final center = tester.getCenter(
+      find.byKey(const ValueKey('annotateCanvas')),
+    );
     await tester.tapAt(center);
     await tester.pumpAndSettle();
 
     final bar = anns().single;
     // 屏幕 70×28 按视图缩放反算到原图，宽高各自取整会带来少量比例误差，
     // 只要接近 2.5 且显著横向即可（小尺寸下取整偏差可达 ~0.15）。
-    expect((bar.x2 - bar.x1) / (bar.y2 - bar.y1), closeTo(70 / 28, 0.2),
-        reason: '昵称条宽高比应接近 70:28');
+    expect(
+      (bar.x2 - bar.x1) / (bar.y2 - bar.y1),
+      closeTo(70 / 28, 0.2),
+      reason: '昵称条宽高比应接近 70:28',
+    );
   });
-
 }

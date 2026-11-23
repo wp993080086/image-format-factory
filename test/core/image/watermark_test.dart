@@ -104,5 +104,51 @@ void main() {
         expect(out.height, 80, reason: '$pos');
       }
     });
+
+    test('全屏重复比单点画出更多水印像素', () {
+      int changed(bool repeat) {
+        final src = img.Image(width: 400, height: 300, numChannels: 4);
+        img.fill(src, color: img.ColorRgba8(0, 0, 0, 255));
+        final out = applyTextWatermark(
+          src,
+          TextWatermark(
+            text: 'WM',
+            fontSize: 24,
+            colorArgb: 0xFFFFFFFF,
+            position: WatermarkPosition.center,
+            repeat: repeat,
+          ),
+        );
+        var n = 0;
+        for (final p in out) {
+          if (p.r > 10) n++;
+        }
+        return n;
+      }
+
+      expect(
+        changed(true),
+        greaterThan(changed(false) * 2),
+        reason: '平铺应在多处重复出现',
+      );
+    });
+
+    test('copyWith 保留未指定字段', () {
+      const base = TextWatermark(
+        text: '原',
+        fontSize: 30,
+        colorArgb: 0xFFFF0000,
+        opacity: 60,
+        position: WatermarkPosition.topLeft,
+        repeat: true,
+      );
+      final next = base.copyWith(text: '新');
+      expect(next.text, '新');
+      expect(next.fontSize, 30);
+      expect(next.colorArgb, 0xFFFF0000);
+      expect(next.opacity, 60);
+      expect(next.position, WatermarkPosition.topLeft);
+      expect(next.repeat, isTrue);
+    });
   });
 }
