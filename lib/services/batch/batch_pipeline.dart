@@ -21,25 +21,31 @@ class BatchPipeline {
 
   /// 编码回调：构造 [EncodeRequest]，若配置了目标体积再做质量二分。
   Future<BatchEncoded?> encode(BatchItem item, BatchConfig config) async {
+    // 首编码与目标体积二分共用同一份字段，避免两处构造漏字段（曾漏 avifQuality）。
+    EncodeRequest buildRequest({
+      required int quality,
+      required int avifQuality,
+    }) => EncodeRequest(
+      sourceBytes: item.sourceBytes,
+      format: config.targetFormat,
+      quality: quality,
+      icoSizes: config.icoSizes,
+      crop: config.crop,
+      cropCircle: config.circleCrop,
+      resize: config.resize,
+      jpegChroma: config.jpegChroma,
+      pngLevel: config.pngLevel,
+      pngPalette: config.pngPalette,
+      exportAnimation: config.exportAnimation && item.animated,
+      avifQuality: avifQuality,
+      colorAdjust: config.colorAdjust,
+      watermark: config.watermark,
+      annotations: config.annotations,
+      blur: config.blur,
+    );
+
     final result = await encodeService.encode(
-      EncodeRequest(
-        sourceBytes: item.sourceBytes,
-        format: config.targetFormat,
-        quality: config.quality,
-        icoSizes: config.icoSizes,
-        crop: config.crop,
-        cropCircle: config.circleCrop,
-        resize: config.resize,
-        jpegChroma: config.jpegChroma,
-        pngLevel: config.pngLevel,
-        pngPalette: config.pngPalette,
-        exportAnimation: config.exportAnimation && item.animated,
-        avifQuality: config.avifQuality,
-        colorAdjust: config.colorAdjust,
-        watermark: config.watermark,
-        annotations: config.annotations,
-        blur: config.blur,
-      ),
+      buildRequest(quality: config.quality, avifQuality: config.avifQuality),
     );
     if (result == null) return null;
 
@@ -48,22 +54,13 @@ class BatchPipeline {
     if (config.targetKb != null && _isLossy(config.targetFormat)) {
       final compressed = await compressToTargetSize(
         encode: (quality) async {
+          // 二分出的质量要落到该格式真正生效的字段上：AVIF 读 avifQuality，
+          // JPEG/WebP 读 quality；另一个字段保持用户配置，不参与二分。
+          final isAvif = config.targetFormat == ImageFormat.avif;
           final r = await encodeService.encode(
-            EncodeRequest(
-              sourceBytes: item.sourceBytes,
-              format: config.targetFormat,
-              quality: quality,
-              icoSizes: config.icoSizes,
-              crop: config.crop,
-              cropCircle: config.circleCrop,
-              resize: config.resize,
-              jpegChroma: config.jpegChroma,
-              pngLevel: config.pngLevel,
-              pngPalette: config.pngPalette,
-              colorAdjust: config.colorAdjust,
-              watermark: config.watermark,
-              annotations: config.annotations,
-              blur: config.blur,
+            buildRequest(
+              quality: isAvif ? config.quality : quality,
+              avifQuality: isAvif ? quality : config.avifQuality,
             ),
           );
           return r?.bytes ?? const <int>[];
