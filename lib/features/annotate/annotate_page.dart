@@ -305,7 +305,8 @@ class _AnnotateEditorState extends ConsumerState<_AnnotateEditor> {
     );
   }
 
-  Offset _screenPoint(double x, double y, Size box) {
+  /// 原图坐标 → 画布坐标（视图 Transform 之前，与 [_toCanvas] 同一坐标系）。
+  Offset _canvasPoint(double x, double y, Size box) {
     final fit = _fitSize(box);
     final org = _origin(box);
     return Offset(
@@ -346,7 +347,7 @@ class _AnnotateEditorState extends ConsumerState<_AnnotateEditor> {
     if (selected != null && selected < _annotations.length) {
       final a = _annotations[selected];
       for (final h in _handles(a)) {
-        final hp = _screenPoint(h.pos.dx, h.pos.dy, box);
+        final hp = _canvasPoint(h.pos.dx, h.pos.dy, box);
         if ((canvas - hp).distance <= threshold) {
           return (mode: _Mode.handle, handle: h.key, index: selected);
         }
@@ -428,7 +429,7 @@ class _AnnotateEditorState extends ConsumerState<_AnnotateEditor> {
       } else {
         // 点按放码：预设是屏幕逻辑像素，需按当前视图缩放反算成原图尺寸，
         // 这样不管图片分辨率多高、视图缩放到多少，屏幕上看到的块都固定大小。
-        // sx/sy 与 _screenPoint 的换算一致（含用户缩放 _scale）。
+        // sx/sy 与 _canvasPoint 的换算一致（含用户缩放 _scale）。
         final fit = _fitSize(box);
         final sx = fit.width * _scale / _source.width;
         final sy = fit.height * _scale / _source.height;
@@ -1240,10 +1241,12 @@ class _AnnotationPainter extends CustomPainter {
 
   void _drawOne(Canvas canvas, Annotation a, bool isSelected, bool isDraft) {
     final color = Color(a.colorArgb);
+    // painter 在已按 _scale 缩放的 Transform 内，这里只做原图→fit 的换算，
+    // 让 Transform 统一承担视图缩放（与涂抹预览/雪花块一致，避免线宽被乘两次）。
     final paint = Paint()
       ..color = color
       ..style = PaintingStyle.stroke
-      ..strokeWidth = a.strokeWidth * scale * (fit.width / source.width) + 0.5;
+      ..strokeWidth = a.strokeWidth * (fit.width / source.width) + 0.5;
     final p1 = _p(a.x1.toDouble(), a.y1.toDouble());
     final p2 = _p(a.x2.toDouble(), a.y2.toDouble());
     final rect = Rect.fromPoints(p1, p2);
@@ -1387,8 +1390,9 @@ class _AnnotationPainter extends CustomPainter {
     }
   }
 
-  /// 涂抹轨迹预览：半透明圆头粗线，半径按当前缩放折算到屏幕。
-  /// 只示意覆盖范围，真实打码在导出时由 [_applyBrush] 逐像素生成。
+  /// 涂抹模糊的轨迹预览：半透明圆头粗线，半径按 fit 比例换算，视图缩放由外层 Transform 承担。
+  /// 只示意覆盖范围；导出时由 annotation.dart 的 _applyBrush 做整图高斯模糊 + 掩码替换，
+  /// 效果与这条示意线并不完全一致（预览无法呈现真实毛玻璃）。
   void _drawBrushPreview(Canvas canvas, Annotation a) {
     final pts = a.points;
     if (pts.isEmpty) return;
