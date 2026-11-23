@@ -829,7 +829,7 @@ void main() {
     expect(find.text('上下拖动查看'), findsNothing);
   });
 
-  testWidgets('标注页：点按放码头像块/昵称条生成预设尺寸马赛克，落块后回到选择工具',
+  testWidgets('标注页：点按放码头像块/昵称条生成预设尺寸马赛克，命中已有块不再新建',
       (tester) async {
     await _bootHome(tester, size: const ImageDimensions(512, 512));
     await _importImage(tester);
@@ -853,15 +853,17 @@ void main() {
     expect(avatar.type, AnnotationType.mosaic, reason: '点按放码落到普通马赛克标注');
     expect(avatar.x2 - avatar.x1, avatar.y2 - avatar.y1, reason: '头像块应为正方形');
 
-    // 关键修复：落块后自动切回"选择"工具，再点同一处不应新增块
+    // 关键修复：命中优先——再点同一处命中已有块本体，只移动不新建。
+    // 头像块工具保持激活，但点已有块也不再生成第二个块。
     await tester.tapAt(center);
     await tester.pumpAndSettle();
-    expect(anns().length, 1, reason: '落块后应为选择工具，再次触摸只移动不新建');
+    expect(anns().length, 1, reason: '命中已有块应进入移动，不应新建');
 
-    // 昵称条：单击落一个横向宽条马赛克（宽显著大于高）
+    // 昵称条：单击落一个横向宽条马赛克（宽显著大于高）。
+    // 落点避开上面的头像块，否则命中优先会改为移动头像块。
     await tester.tap(find.widgetWithText(ChoiceChip, '昵称条'));
     await tester.pumpAndSettle();
-    await tester.tapAt(center);
+    await tester.tapAt(center + const Offset(70, 0));
     await tester.pumpAndSettle();
     expect(anns().length, 2);
     final bar = anns().last;
@@ -964,8 +966,10 @@ void main() {
     expect(anns().last.type, AnnotationType.text);
     expect(anns().last.text, '你好世界');
 
-    // 属性条可再次编辑文案（输入即生效的入口存在）
-    expect(find.byKey(const ValueKey('annotationTextEdit')), findsOneWidget);
+    // 文案只在放置弹窗里输入；属性条不再提供无效的文案输入框，
+    // 但保留字号滑块供放置后调整。
+    expect(find.byKey(const ValueKey('annotationTextEdit')), findsNothing);
+    expect(find.text('字号'), findsWidgets);
   });
 
   testWidgets('标注页：滑块连续拖动只产生一次撤销', (tester) async {
@@ -1007,6 +1011,68 @@ void main() {
     await tester.pumpAndSettle();
     expect(anns().last.strokeWidth, initialWidth,
         reason: '连续拖动应合并为一次撤销');
+  });
+
+  testWidgets('标注页：文字工具下点已有文字本体不重复弹窗，可拖动定位', (tester) async {
+    await _bootHome(tester, size: const ImageDimensions(256, 256));
+    await _importImage(tester);
+    await tester.tap(find.text('标注'));
+    await tester.pumpAndSettle();
+
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(Scaffold).first),
+    );
+    List<Annotation> anns() => container.read(editorControllerProvider).annotations;
+
+    // 文字工具创建一条文字（工具保持为文字，不切回选择）
+    await tester.tap(find.widgetWithText(ChoiceChip, '文字'));
+    await tester.pumpAndSettle();
+    final rect = tester.getRect(find.byKey(const ValueKey('annotateCanvas')));
+    await tester.tapAt(Offset(rect.left + 80, rect.top + 80));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).first, '昵称');
+    await tester.tap(find.widgetWithText(FilledButton, '添加'));
+    await tester.pumpAndSettle();
+    expect(anns().length, 1);
+    final textRect = tester.getRect(find.byKey(const ValueKey('annotateCanvas')));
+    final textStart = Offset(textRect.left + 80, textRect.top + 80);
+
+    // 再次点文字本体（文字工具仍激活）：命中优先 → 选中，不再弹输入框
+    await tester.tapAt(textStart);
+    await tester.pumpAndSettle();
+    expect(find.text('添加文字标注'), findsNothing, reason: '点已有文字不应重复弹窗');
+    expect(container.read(editorControllerProvider).selectedAnnotation, 0,
+        reason: '点文字本体应选中它');
+
+    // 拖动文字本体可改变位置（x1 增大）
+    final before = anns().first.x1;
+    await tester.dragFrom(textStart, const Offset(40, 0));
+    await tester.pumpAndSettle();
+    expect(anns().first.x1, greaterThan(before), reason: '文字应可整体拖动定位');
+  });
+
+  testWidgets('标注页：昵称条预设宽高比为 70:28', (tester) async {
+    await _bootHome(tester, size: const ImageDimensions(512, 512));
+    await _importImage(tester);
+    await tester.tap(find.text('标注'));
+    await tester.pumpAndSettle();
+
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(Scaffold).first),
+    );
+    List<Annotation> anns() => container.read(editorControllerProvider).annotations;
+
+    await tester.tap(find.widgetWithText(ChoiceChip, '昵称条'));
+    await tester.pumpAndSettle();
+    final center = tester.getCenter(find.byKey(const ValueKey('annotateCanvas')));
+    await tester.tapAt(center);
+    await tester.pumpAndSettle();
+
+    final bar = anns().single;
+    // 屏幕 70×28 按视图缩放反算到原图，宽高各自取整会带来少量比例误差，
+    // 只要接近 2.5 且显著横向即可（小尺寸下取整偏差可达 ~0.15）。
+    expect((bar.x2 - bar.x1) / (bar.y2 - bar.y1), closeTo(70 / 28, 0.2),
+        reason: '昵称条宽高比应接近 70:28');
   });
 
 }

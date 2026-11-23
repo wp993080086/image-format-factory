@@ -125,7 +125,7 @@ enum _Tool {
   /// 高分辨率图片缩到屏幕后，若按原图像素放块会小到只剩几个像素（真机反馈）。
   Size? get tapPresetSize => switch (this) {
         _Tool.avatarBlock => const Size(48, 48),
-        _Tool.nicknameBar => const Size(120, 34),
+        _Tool.nicknameBar => const Size(70, 28),
         _ => null,
       };
 }
@@ -321,8 +321,11 @@ class _AnnotateEditorState extends ConsumerState<_AnnotateEditor> {
         (key: _Handle.end, pos: Offset(a.x2.toDouble(), a.y2.toDouble())),
       ];
     }
-    // 涂抹轨迹没有可拖拽的角手柄（整体移动即可，逐点编辑超出当前交互范围）
-    if (a.type == AnnotationType.brush) return const [];
+    // 涂抹轨迹与文字没有可拖拽的角手柄：涂抹逐点编辑超出当前交互范围，
+    // 文字的框由字号决定、拖角改变宽高对显示无意义，二者都只整体拖动定位。
+    if (a.type == AnnotationType.brush || a.type == AnnotationType.text) {
+      return const [];
+    }
     return [
       (key: _Handle.tl, pos: Offset(r.left, r.top)),
       (key: _Handle.tr, pos: Offset(r.right, r.top)),
@@ -389,6 +392,23 @@ class _AnnotateEditorState extends ConsumerState<_AnnotateEditor> {
       return;
     }
 
+    // 命中优先：点到已有标注的手柄或本体就进入调整，只有点空白处才新建。
+    // 这样文字点本体不再重复弹窗、线/形状手柄生效、头像块落块后可直接拖动，
+    // 且头像块无需切回"选择"工具也能连续放置（真机反馈的三个问题同源）。
+    final hit = _hitTest(d.localFocalPoint, box);
+    if (hit.mode == _Mode.move || hit.mode == _Mode.handle) {
+      _mode = hit.mode;
+      _handle = hit.handle;
+      _controller.selectAnnotation(hit.index);
+      // 一次拖动 = 一次撤销：手势期间不逐帧压历史
+      _controller.beginAnnotationGesture();
+      _startAnnotation = _annotations[hit.index!];
+      _draftIndex = hit.index;
+      return;
+    }
+
+    // 点在空白处：取消选中，按当前工具决定是否新建。
+    _controller.selectAnnotation(null);
     final type = _tool.annotationType;
     if (type != null) {
       // 文字工具：落点弹输入框，确认后才创建（避免"点一下凭空出现文字"却无从编辑）。
@@ -440,18 +460,8 @@ class _AnnotateEditorState extends ConsumerState<_AnnotateEditor> {
       return;
     }
 
-    final hit = _hitTest(d.localFocalPoint, box);
-    _mode = hit.mode;
-    _handle = hit.handle;
-    _controller.selectAnnotation(hit.mode == _Mode.view ? null : hit.index);
-    if (hit.index != null) {
-      // 一次拖动 = 一次撤销：手势期间不逐帧压历史
-      if (hit.mode == _Mode.move || hit.mode == _Mode.handle) {
-        _controller.beginAnnotationGesture();
-      }
-      _startAnnotation = _annotations[hit.index!];
-      _draftIndex = hit.index;
-    }
+    // 选择工具点空白：平移视图
+    _mode = _Mode.view;
   }
 
   /// 文字标注：在落点弹出输入框，确认后以该点为左上角创建标注。
@@ -701,9 +711,6 @@ class _AnnotateEditorState extends ConsumerState<_AnnotateEditor> {
         }
       }
     }
-    // 预设块落好后自动切回"选择"工具：否则手指再碰四角圆点时，
-    // 当前工具仍是头像块/昵称条，会再生成一个新块（真机反馈的痛点）。
-    if (placedPreset) _tool = _Tool.select;
     _controller.endAnnotationGesture();
     _mode = _Mode.none;
     _handle = null;
@@ -1044,17 +1051,9 @@ class _PropertyBar extends ConsumerWidget {
                 ],
               ),
             ),
-          if (a.type == AnnotationType.text) ...[
-            SizedBox(
-              width: 180,
-              child: TextField(
-                key: const ValueKey('annotationTextEdit'),
-                decoration: const InputDecoration(labelText: '文案', isDense: true),
-                controller: TextEditingController(text: a.text)
-                  ..selection = TextSelection.collapsed(offset: a.text.length),
-                onSubmitted: (v) => c.updateAnnotation(idx, a.copyWith(text: v)),
-              ),
-            ),
+          // 文案在放置弹窗里一次输入完成，不再提供属性条内的二次编辑框
+          // （此前每次重建都会重置 controller，输入不生效且体验困惑）。
+          if (a.type == AnnotationType.text)
             SizedBox(
               width: 150,
               child: Row(
@@ -1075,7 +1074,6 @@ class _PropertyBar extends ConsumerWidget {
                 ],
               ),
             ),
-          ],
           if (a.type == AnnotationType.mosaic)
             SizedBox(
               width: 170,
@@ -1238,6 +1236,23 @@ class _AnnotationPainter extends CustomPainter {
           textDirection: TextDirection.ltr,
         )..layout();
         tp.paint(canvas, p1);
+        // 选中文字：画一个贴合文字实际大小的虚框，提示可整体拖动定位。
+        // 文字无角手柄（改宽高无意义），这个框就是唯一的选中反馈。
+        if (isSelected) {
+          final textRect = Rect.fromLTWH(
+            p1.dx,
+            p1.dy,
+            tp.width + 8,
+            tp.height + 8,
+          ).inflate(2);
+          canvas.drawRect(
+            textRect,
+            Paint()
+              ..color = Colors.white.withValues(alpha: 0.9)
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = 1,
+          );
+        }
         break;
       case AnnotationType.line:
         canvas.drawLine(p1, p2, paint);
@@ -1270,7 +1285,9 @@ class _AnnotationPainter extends CustomPainter {
         break;
     }
 
-    if (isSelected && a.type != AnnotationType.brush) {
+    if (isSelected &&
+        a.type != AnnotationType.brush &&
+        a.type != AnnotationType.text) {
       final hp = Paint()
         ..color = Colors.white
         ..style = PaintingStyle.fill;
