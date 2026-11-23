@@ -63,7 +63,8 @@ class BatchController extends Notifier<BatchState> {
   BatchState build() => const BatchState();
 
   /// 选多图 → 追加到现有列表（已选的不会被替换）。
-  /// 去重依据：文件名 + 内容字节同时相同才算重复（拍板结论）。
+  /// 去重依据：文件名 + 内容长度 + 折叠哈希（[_dedupeKey]）相同才算重复，
+  /// 即拍板的"同名且同内容"语义；同名不同内容会都保留。
   Future<void> pickImages() async {
     if (state.busy) return;
     state = state.copyWith(

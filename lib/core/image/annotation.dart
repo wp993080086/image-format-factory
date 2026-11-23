@@ -24,7 +24,8 @@ enum AnnotationType {
 
 /// 涂抹打码的填充方式。
 enum BrushMode {
-  /// 分块取平均色的马赛克。
+  /// 固定雪花点马赛克：与底图无关、按全局块坐标确定性生成灰度，
+  /// 预览与导出共用 [snowGray]（不做逐像素采样，见 v0.5 性能优化）。
   mosaic,
 
   /// 高斯模糊（毛玻璃）。
@@ -98,22 +99,21 @@ class Annotation {
     List<int>? points,
     BrushMode? brushMode,
     int? brushRadius,
-  }) =>
-      Annotation(
-        type: type ?? this.type,
-        x1: x1 ?? this.x1,
-        y1: y1 ?? this.y1,
-        x2: x2 ?? this.x2,
-        y2: y2 ?? this.y2,
-        colorArgb: colorArgb ?? this.colorArgb,
-        strokeWidth: strokeWidth ?? this.strokeWidth,
-        text: text ?? this.text,
-        fontSize: fontSize ?? this.fontSize,
-        mosaicBlock: mosaicBlock ?? this.mosaicBlock,
-        points: points ?? this.points,
-        brushMode: brushMode ?? this.brushMode,
-        brushRadius: brushRadius ?? this.brushRadius,
-      );
+  }) => Annotation(
+    type: type ?? this.type,
+    x1: x1 ?? this.x1,
+    y1: y1 ?? this.y1,
+    x2: x2 ?? this.x2,
+    y2: y2 ?? this.y2,
+    colorArgb: colorArgb ?? this.colorArgb,
+    strokeWidth: strokeWidth ?? this.strokeWidth,
+    text: text ?? this.text,
+    fontSize: fontSize ?? this.fontSize,
+    mosaicBlock: mosaicBlock ?? this.mosaicBlock,
+    points: points ?? this.points,
+    brushMode: brushMode ?? this.brushMode,
+    brushRadius: brushRadius ?? this.brushRadius,
+  );
 }
 
 /// 把一组标注按矢量数据合成到位图，返回新图。
@@ -279,8 +279,14 @@ void _applyMosaic(img.Image image, Annotation a) {
       final ex = math.min(bx + block - 1, right);
       final ey = math.min(by + block - 1, bottom);
       final g = snowGray(bx ~/ block, by ~/ block);
-      img.fillRect(image, x1: bx, y1: by, x2: ex, y2: ey,
-          color: img.ColorRgba8(g, g, g, 255));
+      img.fillRect(
+        image,
+        x1: bx,
+        y1: by,
+        x2: ex,
+        y2: ey,
+        color: img.ColorRgba8(g, g, g, 255),
+      );
     }
   }
 }
@@ -288,8 +294,9 @@ void _applyMosaic(img.Image image, Annotation a) {
 /// 涂抹打码：沿一条自由轨迹把覆盖区域打码。
 ///
 /// 两步：先把轨迹（点间线性插值，避免快速拖动留缝）连同笔刷半径烘成一张
-/// 覆盖掩码，再按 [BrushMode] 只对掩码内的像素填充——马赛克取块内平均色，
-/// 模糊则整图高斯模糊后把掩码内的像素换回。
+/// 覆盖掩码，再按 [BrushMode] 只对掩码内的像素填充——马赛克写入固定雪花点
+/// （[snowGray]，与底图无关、零像素采样），模糊则整图高斯模糊后把掩码内的
+/// 像素换回。
 void _applyBrush(img.Image image, Annotation a) {
   final pts = a.points;
   if (pts.length < 2) return;

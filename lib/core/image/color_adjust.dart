@@ -8,7 +8,7 @@ import 'package:image/image.dart' as img;
 /// - [saturation]：饱和度，-100~100，映射到 1 + v/100
 /// - [hue]：色相偏移，度，-180~180
 /// - [sharpen]：锐化强度，0~100
-/// - [denoise]：降噪（高斯模糊半径 ×10），0~100
+/// - [denoise]：降噪（按 denoise/40 钳到 1~5 的高斯模糊半径），0~100
 class ColorAdjust {
   const ColorAdjust({
     this.brightness = 0,
@@ -70,11 +70,7 @@ img.Image applyColorAdjust(img.Image source, ColorAdjust p) {
   if (p.sharpen > 0) {
     // 锐化 = 原图 + strength × (原图 - 模糊图)，用拉普拉斯卷积核近似。
     final strength = (p.sharpen / 100.0).clamp(0.0, 1.0);
-    const sharpenKernel = <num>[
-      0, -1, 0,
-      -1, 5, -1,
-      0, -1, 0,
-    ];
+    const sharpenKernel = <num>[0, -1, 0, -1, 5, -1, 0, -1, 0];
     work = img.convolution(work, filter: sharpenKernel, amount: strength);
   }
 
