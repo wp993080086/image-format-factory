@@ -134,10 +134,10 @@ enum _Tool {
 enum _Mode { none, view, move, handle, create }
 
 /// 文字输入对话框的返回值。
+/// 字号不在这里选：放置后由四角手柄等比缩放（拖角同时改字号，避免两套尺寸）。
 class _TextInput {
-  const _TextInput(this.text, this.fontSize, this.colorArgb);
+  const _TextInput(this.text, this.colorArgb);
   final String text;
-  final int fontSize;
   final int colorArgb;
 }
 
@@ -321,9 +321,9 @@ class _AnnotateEditorState extends ConsumerState<_AnnotateEditor> {
         (key: _Handle.end, pos: Offset(a.x2.toDouble(), a.y2.toDouble())),
       ];
     }
-    // 涂抹轨迹与文字没有可拖拽的角手柄：涂抹逐点编辑超出当前交互范围，
-    // 文字的框由字号决定、拖角改变宽高对显示无意义，二者都只整体拖动定位。
-    if (a.type == AnnotationType.brush || a.type == AnnotationType.text) {
+    // 涂抹逐点编辑超出当前交互范围，不给手柄；
+    // 文字保留四角手柄，拖角时整体等比缩放（见 _resizeText）。
+    if (a.type == AnnotationType.brush) {
       return const [];
     }
     return [
@@ -465,10 +465,9 @@ class _AnnotateEditorState extends ConsumerState<_AnnotateEditor> {
   }
 
   /// 文字标注：在落点弹出输入框，确认后以该点为左上角创建标注。
-  /// 字号/颜色也在这里一次设定，避免"点了就出现文字却改不了"。
+  /// 颜色在这里一次设定；字号固定，放置后用四角手柄等比缩放。
   Future<void> _startTextAt(Offset origin) async {
     final controller = TextEditingController();
-    var fontSize = 24;
     var colorArgb = 0xFFFF0000;
     final result = await showDialog<_TextInput>(
       context: context,
@@ -490,28 +489,10 @@ class _AnnotateEditorState extends ConsumerState<_AnnotateEditor> {
                   textInputAction: TextInputAction.done,
                   onSubmitted: (v) => Navigator.pop(
                     dialogContext,
-                    _TextInput(v.trim(), fontSize, colorArgb),
+                    _TextInput(v.trim(), colorArgb),
                   ),
                 ),
                 const SizedBox(height: 16),
-                Row(
-                  children: [
-                    const Text('字号'),
-                    Expanded(
-                      child: Slider(
-                        value: fontSize.toDouble(),
-                        min: 12,
-                        max: 72,
-                        divisions: 60,
-                        label: '$fontSize',
-                        onChanged: (v) =>
-                            setDialogState(() => fontSize = v.round()),
-                      ),
-                    ),
-                    SizedBox(width: 36, child: Text('$fontSize')),
-                  ],
-                ),
-                const SizedBox(height: 4),
                 Row(
                   children: [
                     const Text('颜色'),
@@ -553,7 +534,7 @@ class _AnnotateEditorState extends ConsumerState<_AnnotateEditor> {
             FilledButton(
               onPressed: () => Navigator.pop(
                 dialogContext,
-                _TextInput(controller.text.trim(), fontSize, colorArgb),
+                _TextInput(controller.text.trim(), colorArgb),
               ),
               child: const Text('添加'),
             ),
@@ -564,20 +545,32 @@ class _AnnotateEditorState extends ConsumerState<_AnnotateEditor> {
     // controller 交给对话框持有，_dialog 关闭后再由 Flutter 回收；
     // 这里不能提前 dispose——退出动画期间 TextField 仍会引用它。
     if (result == null || result.text.isEmpty || !mounted) return;
-    // 文字按当前视图缩放估算一个可点的框宽，字号用于绘制；落点即左上角。
+    // 框按画布上的实际文字尺寸生成，四角手柄才能贴着文字；
+    // 框存原图坐标（除以 sx/sy），视图缩放只影响显示。
+    const fontSize = 24;
     final fit = _fitSize(MediaQuery.sizeOf(context));
-    final sx = fit.width * _scale / _source.width;
+    final sx = fit.width / _source.width;
+    final sy = fit.height / _source.height;
+    final tp = TextPainter(
+      text: TextSpan(
+        text: result.text,
+        style: TextStyle(fontSize: fontSize * _scale, fontFamily: 'Noto Sans SC'),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    final w = (tp.width + 8) / sx;
+    final h = (tp.height + 8) / sy;
     _controller.addAnnotation(
       Annotation(
         type: AnnotationType.text,
         x1: origin.dx.round().clamp(0, _source.width),
         y1: origin.dy.round().clamp(0, _source.height),
-        x2: (origin.dx + result.fontSize * 4 / sx).round().clamp(0, _source.width),
-        y2: (origin.dy + result.fontSize * 1.6 / sx).round().clamp(0, _source.height),
+        x2: (origin.dx + w).round().clamp(0, _source.width),
+        y2: (origin.dy + h).round().clamp(0, _source.height),
         colorArgb: result.colorArgb,
         strokeWidth: 3,
         text: result.text,
-        fontSize: result.fontSize,
+        fontSize: fontSize,
       ),
     );
   }
@@ -671,7 +664,32 @@ class _AnnotateEditorState extends ConsumerState<_AnnotateEditor> {
     }
   }
 
+  /// 文字等比缩放：拖任一角，对角保持不动，字号与框按同一比例变化。
+  /// 只提供"整体放大/缩小"，不单独拉伸宽高，因此宽高比始终不变。
+  Annotation _resizeText(Annotation base, _Handle h, Offset now) {
+    final r = _originRect(base);
+    if (r.width < 1 || r.height < 1) return base;
+    final isLeft = h == _Handle.tl || h == _Handle.bl;
+    final isTop = h == _Handle.tl || h == _Handle.tr;
+    // 锚点是对角；拖动点与锚点的距离 / 原手柄与锚点的距离 = 缩放比例。
+    final anchor = Offset(isLeft ? r.right : r.left, isTop ? r.bottom : r.top);
+    final diagonal = math.sqrt(r.width * r.width + r.height * r.height);
+    final factor = (now - anchor).distance / diagonal;
+    final fontSize = (base.fontSize * factor).round().clamp(6, 200);
+    final k = fontSize / base.fontSize;
+    final w = r.width * k;
+    final h2 = r.height * k;
+    return base.copyWith(
+      x1: (isLeft ? anchor.dx - w : anchor.dx).round(),
+      y1: (isTop ? anchor.dy - h2 : anchor.dy).round(),
+      x2: (isLeft ? anchor.dx : anchor.dx + w).round(),
+      y2: (isTop ? anchor.dy : anchor.dy + h2).round(),
+      fontSize: fontSize,
+    );
+  }
+
   Annotation _resize(Annotation base, _Handle h, Offset now) {
+    if (base.type == AnnotationType.text) return _resizeText(base, h, now);
     final x = now.dx.round();
     final y = now.dy.round();
     switch (h) {
@@ -992,7 +1010,7 @@ class _AnnotateEditorState extends ConsumerState<_AnnotateEditor> {
   }
 }
 
-/// 属性条：编辑选中标注的颜色/线宽/字号/文字/马赛克块。
+/// 属性条：编辑选中标注的颜色/线宽/马赛克块/涂抹方式。
 class _PropertyBar extends ConsumerWidget {
   const _PropertyBar();
 
@@ -1051,29 +1069,8 @@ class _PropertyBar extends ConsumerWidget {
                 ],
               ),
             ),
-          // 文案在放置弹窗里一次输入完成，不再提供属性条内的二次编辑框
-          // （此前每次重建都会重置 controller，输入不生效且体验困惑）。
-          if (a.type == AnnotationType.text)
-            SizedBox(
-              width: 150,
-              child: Row(
-                children: [
-                  const Text('字号'),
-                  Expanded(
-                    child: Slider(
-                      value: a.fontSize.toDouble().clamp(12, 72),
-                      min: 12,
-                      max: 72,
-                      divisions: 60,
-                      onChangeStart: (_) => c.beginAnnotationGesture(),
-                      onChangeEnd: (_) => c.endAnnotationGesture(),
-                      onChanged: (v) =>
-                          c.updateAnnotation(idx, a.copyWith(fontSize: v.round())),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+          // 文案在放置弹窗里输入，字号由画布四角手柄等比缩放，
+          // 属性条不再提供字号滑块（避免与手柄缩放两套尺寸互相打架）。
           if (a.type == AnnotationType.mosaic)
             SizedBox(
               width: 170,
@@ -1236,17 +1233,10 @@ class _AnnotationPainter extends CustomPainter {
           textDirection: TextDirection.ltr,
         )..layout();
         tp.paint(canvas, p1);
-        // 选中文字：画一个贴合文字实际大小的虚框，提示可整体拖动定位。
-        // 文字无角手柄（改宽高无意义），这个框就是唯一的选中反馈。
+        // 选中文字：虚框与四角手柄共用 x1/y1~x2/y2，拖本体定位、拖角等比缩放。
         if (isSelected) {
-          final textRect = Rect.fromLTWH(
-            p1.dx,
-            p1.dy,
-            tp.width + 8,
-            tp.height + 8,
-          ).inflate(2);
           canvas.drawRect(
-            textRect,
+            rect.inflate(2),
             Paint()
               ..color = Colors.white.withValues(alpha: 0.9)
               ..style = PaintingStyle.stroke
@@ -1285,9 +1275,7 @@ class _AnnotationPainter extends CustomPainter {
         break;
     }
 
-    if (isSelected &&
-        a.type != AnnotationType.brush &&
-        a.type != AnnotationType.text) {
+    if (isSelected && a.type != AnnotationType.brush) {
       final hp = Paint()
         ..color = Colors.white
         ..style = PaintingStyle.fill;

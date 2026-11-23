@@ -966,10 +966,10 @@ void main() {
     expect(anns().last.type, AnnotationType.text);
     expect(anns().last.text, '你好世界');
 
-    // 文案只在放置弹窗里输入；属性条不再提供无效的文案输入框，
-    // 但保留字号滑块供放置后调整。
+    // 文案只在放置弹窗里输入；字号改由画布四角手柄等比缩放，
+    // 弹窗和属性条都不再出现字号滑块。
     expect(find.byKey(const ValueKey('annotationTextEdit')), findsNothing);
-    expect(find.text('字号'), findsWidgets);
+    expect(find.text('字号'), findsNothing);
   });
 
   testWidgets('标注页：滑块连续拖动只产生一次撤销', (tester) async {
@@ -1049,6 +1049,55 @@ void main() {
     await tester.dragFrom(textStart, const Offset(40, 0));
     await tester.pumpAndSettle();
     expect(anns().first.x1, greaterThan(before), reason: '文字应可整体拖动定位');
+  });
+
+  testWidgets('标注页：文字四角手柄等比缩放，字号随框同步变化', (tester) async {
+    await _bootHome(tester, size: const ImageDimensions(256, 256));
+    await _importImage(tester);
+    await tester.tap(find.text('标注'));
+    await tester.pumpAndSettle();
+
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(Scaffold).first),
+    );
+    List<Annotation> anns() => container.read(editorControllerProvider).annotations;
+
+    await tester.tap(find.widgetWithText(ChoiceChip, '文字'));
+    await tester.pumpAndSettle();
+    final rect = tester.getRect(find.byKey(const ValueKey('annotateCanvas')));
+    await tester.tapAt(Offset(rect.left + 60, rect.top + 60));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).first, '你好');
+    await tester.tap(find.widgetWithText(FilledButton, '添加'));
+    await tester.pumpAndSettle();
+    expect(anns().length, 1);
+
+    // 方形图按 contain 适配：屏幕坐标 = 画布左上角 + origin + 原图坐标 * fit/source
+    final box = tester.getRect(find.byKey(const ValueKey('annotateCanvas'))).size;
+    final fit = box.width < box.height ? box.width : box.height;
+    final origin = Offset((box.width - fit) / 2, (box.height - fit) / 2);
+    Offset screen(double x, double y) => Offset(
+          rect.left + origin.dx + x * fit / 256,
+          rect.top + origin.dy + y * fit / 256,
+        );
+
+    final before = anns().first;
+    // 拖右下角手柄向外：字号变大、框变大，宽高比不变、对角（左上角）不动。
+    await tester.dragFrom(
+      screen(before.x2.toDouble(), before.y2.toDouble()),
+      const Offset(40, 16),
+    );
+    await tester.pumpAndSettle();
+    final after = anns().first;
+    expect(after.fontSize, greaterThan(before.fontSize), reason: '拖角应放大字号');
+    expect(after.x1, before.x1, reason: '拖右下角时左上角应保持不动');
+    expect(after.y1, before.y1, reason: '拖右下角时左上角应保持不动');
+    expect(after.x2 - after.x1, greaterThan(before.x2 - before.x1));
+    expect(
+      (after.x2 - after.x1) / (after.y2 - after.y1),
+      closeTo((before.x2 - before.x1) / (before.y2 - before.y1), 0.15),
+      reason: '整体缩放应保持宽高比不变',
+    );
   });
 
   testWidgets('标注页：昵称条预设宽高比为 70:28', (tester) async {
