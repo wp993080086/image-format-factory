@@ -21,8 +21,9 @@ class CjkText {
   /// 返回可用于 `img.drawString` 的字体：字号等于 24 时直接返回基准字体，
   /// 否则构造一份只含所需字形缩放版的字体。
   ///
-  /// 注意：[text] 不同会得到不同的字体实例（各自只含自身用到的字形），
-  /// 缓存粒度是「字号 → 累积字形集合」。字库总量有限，累积不会无限增长。
+  /// 缓存粒度是「字号 → 一份字体实例」：同一字号的所有文本共享实例，
+  /// 遇到尚未缓存的字形时按需往里补充（[_coversAll] 判断覆盖）。
+  /// 字库总量有限，累积不会无限增长。
   static img.BitmapFont fontFor(String text, int fontSize) {
     final size = fontSize.clamp(6, 200);
     if (size == 24) return cjk24;
@@ -114,5 +115,22 @@ class CjkText {
       if (ch != null && ch.height > h) h = ch.height;
     }
     return h == 0 ? fontSize : h;
+  }
+
+  /// 测量字形实际占位高度（height + yOffset），用于给渲染画布留白。
+  ///
+  /// 与 [measureHeight] 不同：这里把字形相对基线的 yOffset 一并计入，
+  /// 用于给渲染画布留白，避免字形因偏移超出画布被裁切。
+  static int measureInkHeight(String text, int fontSize) {
+    final font = fontFor(text, fontSize);
+    var h = 0;
+    for (final code in text.codeUnits) {
+      final ch = font.characters[code];
+      if (ch != null) {
+        final ink = ch.height + ch.yOffset;
+        if (ink > h) h = ink;
+      }
+    }
+    return h;
   }
 }

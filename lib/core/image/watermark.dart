@@ -86,15 +86,15 @@ img.Image applyTextWatermark(img.Image source, TextWatermark w) {
   // 用内嵌中文字体（按字号缩放），支持中文与 ASCII
   final font = CjkText.fontFor(w.text, w.fontSize);
 
-  // 量出文字实际尺寸，用于定位与旋转画布
+  // 量出文字实际尺寸，用于定位与旋转画布。
+  // 宽度按 xAdvance 累加，字库外字符跳过（与 drawString 的跳过行为一致）。
   var textW = 0;
-  var textH = 0;
   for (var c in w.text.codeUnits) {
     final ch = font.characters[c];
-    if (ch == null) continue;
-    textW += ch.xAdvance;
-    textH = math.max(textH, ch.height + ch.yOffset);
+    if (ch != null) textW += ch.xAdvance;
   }
+  // 高度含 yOffset，用 CjkText 的统一度量，避免与字形的留白规则脱节。
+  final textH = CjkText.measureInkHeight(w.text, w.fontSize);
   if (textW <= 0 || textH <= 0) return result;
 
   // 在独立透明画布上画文字，支持旋转后再整体合成
