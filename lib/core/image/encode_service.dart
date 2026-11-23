@@ -152,7 +152,6 @@ class EstimateRequest {
     this.pngPalette = false,
     this.colorAdjust = const ColorAdjust(),
     this.watermark,
-    this.annotations = const [],
     this.blur = 0,
   });
 
@@ -168,7 +167,6 @@ class EstimateRequest {
   final bool pngPalette;
   final ColorAdjust colorAdjust;
   final TextWatermark? watermark;
-  final List<Annotation> annotations;
   final int blur;
 }
 
@@ -294,14 +292,16 @@ Future<EncodeResult?> _encodeImage(
     work = applyResize(work, resize);
   }
 
-  // 编辑能力在几何变换之后统一套用：调色 → 水印 → 标注。
-  // 顺序固定，标注永远合成在最上层（PRD 一.7）。
+  // 编辑能力在几何变换之后统一套用：调色 → 整图模糊 → 水印 → 标注。
+  // 顺序固定，模糊只作用于底图，标注永远合成在最上层（PRD 一.7 / v0.6）。
   work = _applyEdits(work, colorAdjust, watermark, annotations, blur);
 
   // GIF 动图导出：从源字节重新解出全部帧，逐帧套用同一裁剪/缩放，保留
   // 每帧延时与循环次数后重新编码。帧内容不改（PRD v0.5 四.10）。
   // exportAnimation=false 或源非动图时落到下面的静态编码分支。
-  if (format == ImageFormat.gif && exportAnimation && decoded.frames.length > 1) {
+  if (format == ImageFormat.gif &&
+      exportAnimation &&
+      decoded.frames.length > 1) {
     final frames = <GifFrame>[];
     for (var i = 0; i < decoded.frames.length; i++) {
       var frame = img.bakeOrientation(img.Image.from(decoded.frames[i]));
@@ -326,7 +326,10 @@ Future<EncodeResult?> _encodeImage(
     );
     return EncodeResult(
       bytes: bytes,
-      size: ImageDimensions(frames.first.image.width, frames.first.image.height),
+      size: ImageDimensions(
+        frames.first.image.width,
+        frames.first.image.height,
+      ),
       alphaFlattened: false,
     );
   }
@@ -469,7 +472,10 @@ Uint8List? _encodeBytes(
 }
 
 /// 子 Isolate 入口：估算体积（PRD 四.7）。
-Future<int?> _estimateBytes(EstimateRequest request, RootIsolateToken? token) async {
+Future<int?> _estimateBytes(
+  EstimateRequest request,
+  RootIsolateToken? token,
+) async {
   if (request.format == ImageFormat.ico) return null;
   final decoded = img.decodeImage(request.previewPng);
   if (decoded == null) return null;
@@ -490,8 +496,16 @@ Future<int?> _estimateBytes(EstimateRequest request, RootIsolateToken? token) as
   var prepared = !request.format.supportsAlpha && sample.hasAlpha
       ? _flattenToWhite(sample)
       : sample;
-  // 编辑能力也计入预估，否则加了水印/调色后预估体积明显偏低
-  prepared = _applyEdits(prepared, request.colorAdjust, request.watermark, request.annotations, request.blur);
+  // 调色/水印/模糊无坐标依赖，计入预估；否则加了整图模糊后体积会明显偏高。
+  // 标注不计入：坐标存原图空间，而这里已降到长边 512 的采样图，直接套用会错位；
+  // 标注只是局部覆盖，对体积的影响远小于格式/质量/模糊，忽略不影响量级提示。
+  prepared = _applyEdits(
+    prepared,
+    request.colorAdjust,
+    request.watermark,
+    const [],
+    request.blur,
+  );
 
   final int bytes;
   if (request.format == ImageFormat.webp) {

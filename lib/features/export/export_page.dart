@@ -183,6 +183,7 @@ class _ExportPageState extends ConsumerState<ExportPage> {
               jpegChroma: _jpegChroma,
               pngLevel: _pngLevel,
               pngPalette: _pngPalette,
+              blur: state.blur,
             ),
           );
       if (!mounted) return;
@@ -230,7 +231,8 @@ class _ExportPageState extends ConsumerState<ExportPage> {
   }
 
   /// 按当前面板参数发起导出；ICO 需附带勾选的尺寸（PRD 一.4）。
-  void _startExport(EditorState state) {    final target = _effectiveFormat(state, _allowedFormats);
+  void _startExport(EditorState state) {
+    final target = _effectiveFormat(state, _allowedFormats);
     final decoded = state.decoded;
     final icoSizes = target == ImageFormat.ico && decoded != null
         ? (_effectiveIcoSizes(
