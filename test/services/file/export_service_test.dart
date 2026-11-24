@@ -244,4 +244,41 @@ void main() {
       expect(displaySavedPath(null, fallback: '下载目录'), '下载目录');
     });
   });
+
+  group('批量目录导出', () {
+    test('序号前缀按三位补零，单图导出不受影响', () {
+      expect(
+        buildExportFileName(
+          sourceFileName: 'a.png',
+          format: ImageFormat.png,
+          quality: 80,
+          width: 100,
+          height: 100,
+        ),
+        'a_100x100.png',
+      );
+      expect(
+        buildExportFileName(
+          sourceFileName: 'a.png',
+          format: ImageFormat.png,
+          quality: 80,
+          width: 100,
+          height: 100,
+          sequence: 1,
+        ),
+        '001_a_100x100.png',
+      );
+      expect(
+        buildExportFileName(
+          sourceFileName: 'a.png',
+          format: ImageFormat.png,
+          quality: 80,
+          width: 100,
+          height: 100,
+          sequence: 12,
+        ),
+        '012_a_100x100.png',
+      );
+    });
+  });
 }

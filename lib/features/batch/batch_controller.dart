@@ -6,6 +6,7 @@ import '../../core/batch/batch_executor.dart';
 import '../../core/batch/batch_models.dart';
 import '../../core/di/providers.dart';
 import '../../core/image/image_format.dart';
+import '../../core/log/app_logger.dart';
 import '../../services/batch/batch_pipeline.dart';
 import '../../services/file/import_service.dart';
 
@@ -147,6 +148,17 @@ class BatchController extends Notifier<BatchState> {
       encodeService: ref.read(encodeServiceProvider),
       exportService: ref.read(exportServiceProvider),
     );
+    try {
+      await pipeline.prepareExport();
+    } catch (e, st) {
+      // 选目录失败不影响导出：回落到原来的逐张保存通道。
+      AppLogger.warn(
+        '批量选择输出目录失败，改为逐张保存',
+        name: 'batch',
+        error: e,
+        stackTrace: st,
+      );
+    }
     final results = await pipeline.executor().run(
       items: state.items,
       config: state.config,

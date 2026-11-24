@@ -11,13 +11,19 @@ import '../file/export_service.dart';
 ///
 /// 单独成类而非塞进 controller：回调逻辑可独立单测，controller 只管状态。
 class BatchPipeline {
-  const BatchPipeline({
-    required this.encodeService,
-    required this.exportService,
-  });
+  BatchPipeline({required this.encodeService, required this.exportService});
 
   final EncodeService encodeService;
   final ExportService exportService;
+
+  /// 批量导出只选一次目录；为 null 时回落到逐张保存。
+  ExportDestination? _destination;
+  int _sequence = 0;
+
+  /// 任务开始前选一次输出目录，避免每张弹一次保存面板。
+  Future<void> prepareExport() async {
+    _destination = await exportService.pickExportDirectory();
+  }
 
   /// 编码回调：构造 [EncodeRequest]，若配置了目标体积再做质量二分。
   Future<BatchEncoded?> encode(BatchItem item, BatchConfig config) async {
@@ -83,7 +89,7 @@ class BatchPipeline {
     );
   }
 
-  /// 保存回调：按端差异写盘，用户取消返回 null。
+  /// 保存回调：优先写入预先选定的目录，未选则按端差异逐张写盘。
   Future<String?> save(
     BatchItem item,
     BatchConfig config,
@@ -95,7 +101,18 @@ class BatchPipeline {
       quality: config.quality,
       width: encoded.width,
       height: encoded.height,
+      sequence: ++_sequence,
     );
+    final destination = _destination;
+    if (destination != null) {
+      final result = await exportService.saveToDirectory(
+        destination: destination,
+        suggestedName: name,
+        bytes: encoded.bytes,
+        mimeTypes: [config.targetFormat.mimeType],
+      );
+      return result?.savedPath;
+    }
     final result = await exportService.save(
       ExportRequest(
         suggestedName: name,

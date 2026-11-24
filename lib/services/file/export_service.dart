@@ -7,6 +7,22 @@ import '../../core/image/image_format.dart';
 import '../../core/platform/app_platform.dart';
 import 'file_io.dart';
 
+/// 批量导出的一次性目标目录。
+///
+/// Windows 存文件系统路径；Android 存 SAF 授权后的目录引用（不能直接拼路径）。
+class ExportDestination {
+  const ExportDestination._({this.directoryPath, this.directoryLocation});
+
+  final String? directoryPath;
+  final DirectoryLocation? directoryLocation;
+
+  factory ExportDestination.windows(String path) =>
+      ExportDestination._(directoryPath: path);
+
+  factory ExportDestination.android(DirectoryLocation location) =>
+      ExportDestination._(directoryLocation: location);
+}
+
 /// 导出请求。
 class ExportRequest {
   const ExportRequest({
@@ -38,6 +54,7 @@ String buildExportFileName({
   required int quality,
   required int width,
   required int height,
+  int? sequence,
 }) {
   final dot = sourceFileName.lastIndexOf('.');
   final base = dot > 0 ? sourceFileName.substring(0, dot) : sourceFileName;
@@ -46,7 +63,11 @@ String buildExportFileName({
     ImageFormat.ico => 'icon',
     _ => '${width}x$height',
   };
-  return '${base}_$tag.${format.extensions.first}';
+  // 批量导出加三位序号：既按处理顺序排列，也避免同名源文件互相覆盖。
+  final prefix = sequence == null
+      ? ''
+      : '${sequence.toString().padLeft(3, '0')}_';
+  return '$prefix${base}_$tag.${format.extensions.first}';
 }
 
 /// 保存位置的展示文案（PRD 九.4）。
@@ -116,6 +137,46 @@ class ExportService {
       extensions: extensions,
       label: label,
     );
+  }
+
+  /// 批量导出前一次选定输出目录。
+  ///
+  /// 返回 null 表示用户取消或该端不支持选目录，调用方回落到逐张保存。
+  Future<ExportDestination?> pickExportDirectory() async {
+    if (_resolvedTarget == AppTarget.android) {
+      if (!await FlutterFileDialog.isPickDirectorySupported()) return null;
+      final location = await FlutterFileDialog.pickDirectory();
+      return location == null ? null : ExportDestination.android(location);
+    }
+    if (_resolvedTarget != AppTarget.windows) return null;
+    final path = await getDirectoryPath(canCreateDirectories: true);
+    return path == null ? null : ExportDestination.windows(path);
+  }
+
+  /// 写入已选定的目录，不再逐张弹保存面板。
+  Future<ExportResult?> saveToDirectory({
+    required ExportDestination destination,
+    required String suggestedName,
+    required Uint8List bytes,
+    List<String> mimeTypes = const [],
+  }) async {
+    final location = destination.directoryLocation;
+    if (location != null) {
+      final path = await FlutterFileDialog.saveFileToDirectory(
+        directory: location,
+        data: bytes,
+        fileName: suggestedName,
+        mimeType: mimeTypes.isEmpty ? null : mimeTypes.first,
+      );
+      return path == null ? null : ExportResult(savedPath: path);
+    }
+    final directory = destination.directoryPath;
+    if (directory == null) {
+      throw ArgumentError.value(destination, 'destination', '导出目录无效');
+    }
+    final path = '$directory/$suggestedName';
+    await writeBytesToFile(path, bytes);
+    return ExportResult(savedPath: path);
   }
 
   /// 桌面端：系统「另存为」对话框 + 自行写盘。
