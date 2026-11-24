@@ -198,6 +198,113 @@ ContainedLayout containLayout(
   );
 }
 
+/// 源图（裁剪后）到目标画布的几何映射。
+///
+/// 像素变换与标注变换共用同一份结果：cover 的二次裁剪、contain 的留白偏移
+/// 只作用在一侧会导致导出时标注错位。
+class ResizeGeometry {
+  const ResizeGeometry({
+    required this.srcX,
+    required this.srcY,
+    required this.srcWidth,
+    required this.srcHeight,
+    required this.contentWidth,
+    required this.contentHeight,
+    required this.dx,
+    required this.dy,
+    required this.width,
+    required this.height,
+  });
+
+  /// 无裁剪、无缩放时的恒等映射。
+  factory ResizeGeometry.identity(int width, int height) => ResizeGeometry(
+    srcX: 0,
+    srcY: 0,
+    srcWidth: width,
+    srcHeight: height,
+    contentWidth: width,
+    contentHeight: height,
+    dx: 0,
+    dy: 0,
+    width: width,
+    height: height,
+  );
+
+  /// 源图中实际参与变换的区域（cover 会二次裁剪）。
+  final int srcX;
+  final int srcY;
+  final int srcWidth;
+  final int srcHeight;
+
+  /// 变换后内容的尺寸（contain 会小于目标画布）。
+  final int contentWidth;
+  final int contentHeight;
+
+  /// 内容在目标画布中的左上角偏移。
+  final int dx;
+  final int dy;
+
+  /// 目标画布尺寸。
+  final int width;
+  final int height;
+
+  double get scaleX => contentWidth / srcWidth;
+  double get scaleY => contentHeight / srcHeight;
+
+  int mapX(int x) => dx + ((x - srcX) * scaleX).round();
+  int mapY(int y) => dy + ((y - srcY) * scaleY).round();
+}
+
+/// 按填充模式计算源图到目标画布的映射（像素与标注共用）。
+ResizeGeometry computeResizeGeometry(
+  ImageDimensions source,
+  ResizeTarget target,
+) {
+  switch (target.mode) {
+    case ResizeMode.stretch:
+      return ResizeGeometry(
+        srcX: 0,
+        srcY: 0,
+        srcWidth: source.width,
+        srcHeight: source.height,
+        contentWidth: target.width,
+        contentHeight: target.height,
+        dx: 0,
+        dy: 0,
+        width: target.width,
+        height: target.height,
+      );
+    case ResizeMode.cover:
+      final rect = coverSourceRect(source, target.width, target.height);
+      return ResizeGeometry(
+        srcX: rect.x,
+        srcY: rect.y,
+        srcWidth: rect.width,
+        srcHeight: rect.height,
+        contentWidth: target.width,
+        contentHeight: target.height,
+        dx: 0,
+        dy: 0,
+        width: target.width,
+        height: target.height,
+      );
+    case ResizeMode.contain:
+      final layout = containLayout(source, target.width, target.height);
+      return ResizeGeometry(
+        srcX: 0,
+        srcY: 0,
+        srcWidth: source.width,
+        srcHeight: source.height,
+        contentWidth: layout.width,
+        contentHeight: layout.height,
+        dx: layout.dx,
+        dy: layout.dy,
+        width: target.width,
+        height: target.height,
+      );
+  }
+}
+
 /// 缩放倍率的展示文案：`50%` / `200%`。
 String scaleLabel(ImageDimensions source, int targetWidth, int targetHeight) {
   final ratio = targetWidth / source.width;

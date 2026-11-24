@@ -133,4 +133,15 @@ class CjkText {
     }
     return h;
   }
+
+  /// 字形相对绘制起点的最大纵向偏移，供预览按导出点阵的基线对齐。
+  static int maxYOffset(String text, int fontSize) {
+    final font = fontFor(text, fontSize);
+    var offset = 0;
+    for (final code in text.codeUnits) {
+      final ch = font.characters[code];
+      if (ch != null && ch.yOffset > offset) offset = ch.yOffset;
+    }
+    return offset;
+  }
 }

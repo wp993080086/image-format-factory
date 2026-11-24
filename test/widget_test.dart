@@ -9,6 +9,7 @@ import 'package:pixel_forge/app/app_info.dart';
 import 'package:pixel_forge/core/di/providers.dart';
 import 'package:pixel_forge/core/error/app_error.dart';
 import 'package:pixel_forge/core/image/annotation.dart';
+import 'package:pixel_forge/core/image/cjk_text.dart';
 import 'package:pixel_forge/core/image/decode_service.dart';
 import 'package:pixel_forge/core/image/encode_service.dart';
 import 'package:pixel_forge/core/image/image_format.dart';
@@ -1000,6 +1001,17 @@ void main() {
     expect(anns().length, 1);
     expect(anns().last.type, AnnotationType.text);
     expect(anns().last.text, '你好世界');
+    final placed = anns().last;
+    expect(
+      placed.x2 - placed.x1,
+      CjkText.measureWidth('你好世界', placed.fontSize),
+      reason: '框宽应与导出点阵字形等宽',
+    );
+    expect(
+      placed.y2 - placed.y1,
+      CjkText.measureInkHeight('你好世界', placed.fontSize),
+      reason: '框高应与导出点阵占位等高',
+    );
 
     // 文案只在放置弹窗里输入；字号改由画布四角手柄等比缩放，
     // 弹窗和属性条都不再出现字号滑块。

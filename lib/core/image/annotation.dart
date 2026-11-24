@@ -4,6 +4,8 @@ import 'dart:typed_data';
 import 'package:image/image.dart' as img;
 
 import 'cjk_text.dart';
+import 'image_header_probe.dart';
+import 'resize_geometry.dart';
 
 /// 标注类型（PRD v0.5 / M3，用户指定七类 + v0.6 涂抹打码）。
 enum AnnotationType {
@@ -389,24 +391,34 @@ void _blurMasked(img.Image image, Uint8List mask, int brushRadius) {
 /// 线宽、字号、马赛克块不随缩放改变（PRD 一.7：尺寸变换不应拉伸标注）。
 ///
 /// [cropX]/[cropY]/[cropW]/[cropH] 为裁剪区（无裁剪传 0,0,原图宽,原图高）；
-/// [outW]/[outH] 为输出尺寸（无缩放传裁剪区宽高）。
+/// [resize] 为尺寸变换配置，与像素管线共用 [computeResizeGeometry]，
+/// 因此 cover 的二次裁剪与 contain 的留白偏移对标注同样生效。
 List<Annotation> transformAnnotations(
   List<Annotation> source, {
   required int cropX,
   required int cropY,
   required int cropW,
   required int cropH,
-  required int outW,
-  required int outH,
+  ResizeTarget? resize,
 }) {
   if (source.isEmpty) return source;
-  if (cropW <= 0 || cropH <= 0 || outW <= 0 || outH <= 0) return source;
-  final sx = outW / cropW;
-  final sy = outH / cropH;
-  if (cropX == 0 && cropY == 0 && sx == 1 && sy == 1) return source;
+  if (cropW <= 0 || cropH <= 0) return source;
+  final geometry = resize == null
+      ? ResizeGeometry.identity(cropW, cropH)
+      : computeResizeGeometry(ImageDimensions(cropW, cropH), resize);
+  final unchanged =
+      cropX == 0 &&
+      cropY == 0 &&
+      geometry.srcX == 0 &&
+      geometry.srcY == 0 &&
+      geometry.contentWidth == cropW &&
+      geometry.contentHeight == cropH &&
+      geometry.dx == 0 &&
+      geometry.dy == 0;
+  if (unchanged) return source;
 
-  int mapX(int x) => ((x - cropX) * sx).round();
-  int mapY(int y) => ((y - cropY) * sy).round();
+  int mapX(int x) => geometry.mapX(x - cropX);
+  int mapY(int y) => geometry.mapY(y - cropY);
 
   return [
     for (final a in source)

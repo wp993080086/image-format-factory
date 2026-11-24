@@ -412,8 +412,7 @@ class EditorController extends Notifier<EditorState> {
       cropY: cropArea?.y ?? 0,
       cropW: baseW,
       cropH: baseH,
-      outW: resizeTarget?.width ?? baseW,
-      outH: resizeTarget?.height ?? baseH,
+      resize: resizeTarget,
     );
     // HEIF 源在导入时已转过一次给预览；这里要的是全分辨率字节，得再转一次。
     // 不在导入时缓存全图 PNG：移动端常驻一份 20MB+ 的中间图代价过高。

@@ -9,6 +9,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../app/router.dart';
 import '../../core/image/annotation.dart';
+import '../../core/image/cjk_text.dart';
 import '../../core/image/image_header_probe.dart';
 import '../editor/editor_controller.dart';
 import '../editor/editor_state.dart';
@@ -625,27 +626,13 @@ class _AnnotateEditorState extends ConsumerState<_AnnotateEditor> {
     final x1 = (existing?.x1 ?? origin.dx.round()).clamp(0, _source.width);
     final y1 = (existing?.y1 ?? origin.dy.round()).clamp(0, _source.height);
 
-    // 框按绘制端同一套 TextPainter 度量生成，四角手柄才能贴着文字；
-    // 不加额外 padding——否则框右下多出一圈，看起来"文字偏上、框偏大"。
-    // 框存原图坐标（除以 sx/sy），视图缩放只影响显示。
-    final fit = _fitSize(MediaQuery.sizeOf(context));
-    final sx = fit.width / _source.width;
-    final sy = fit.height / _source.height;
-    final tp = TextPainter(
-      text: TextSpan(
-        text: result.text,
-        style: TextStyle(
-          fontSize: fontSize * _scale,
-          fontFamily: 'Noto Sans SC',
-        ),
-      ),
-      textDirection: TextDirection.ltr,
-    )..layout();
-    // 用字号作为尺寸下限：TextPainter 的 height 是行高，在部分环境（尤其
-    // 中文字体缺失 fallback 时）会远小于字形实际高度，导致框过扁、手柄重叠、
-    // 文字看起来"偏上"。下限保证框至少能包住一个字。
-    final w = math.max(tp.width / sx, fontSize.toDouble());
-    final h = math.max(tp.height / sy, fontSize.toDouble());
+    // 框按导出端点阵字形的实际度量生成，预览与导出的边界一致；
+    // 字号是原图像素，视图缩放只影响显示，不再参与框计算。
+    final w = math.max(CjkText.measureWidth(result.text, fontSize), 1);
+    final h = math.max(
+      CjkText.measureInkHeight(result.text, fontSize),
+      fontSize,
+    );
     final updated = Annotation(
       type: AnnotationType.text,
       x1: x1,
@@ -768,9 +755,10 @@ class _AnnotateEditorState extends ConsumerState<_AnnotateEditor> {
     final diagonal = math.sqrt(r.width * r.width + r.height * r.height);
     final factor = (now - anchor).distance / diagonal;
     final fontSize = (base.fontSize * factor).round().clamp(6, 200);
-    final k = fontSize / base.fontSize;
-    final w = r.width * k;
-    final h2 = r.height * k;
+    final w = math.max(CjkText.measureWidth(base.text, fontSize), 1).toDouble();
+    final h2 = math
+        .max(CjkText.measureInkHeight(base.text, fontSize), fontSize)
+        .toDouble();
     return base.copyWith(
       x1: (isLeft ? anchor.dx - w : anchor.dx).round(),
       y1: (isTop ? anchor.dy - h2 : anchor.dy).round(),
@@ -1326,18 +1314,27 @@ class _AnnotationPainter extends CustomPainter {
 
     switch (a.type) {
       case AnnotationType.text:
+        // 字号按原图→fit 换算，外层 Transform 统一承担视图缩放；
+        // 纵向再按导出点阵的 yOffset 偏移，保证预览与导出同一基线。
+        final fitFactor = fit.width / source.width;
         final tp = TextPainter(
           text: TextSpan(
             text: a.text,
             style: TextStyle(
               color: color,
-              fontSize: a.fontSize * scale,
+              fontSize: a.fontSize * fitFactor,
               fontFamily: 'Noto Sans SC',
             ),
           ),
           textDirection: TextDirection.ltr,
         )..layout();
-        tp.paint(canvas, p1);
+        tp.paint(
+          canvas,
+          Offset(
+            p1.dx,
+            p1.dy + CjkText.maxYOffset(a.text, a.fontSize) * fitFactor,
+          ),
+        );
         // 选中文字：虚框与四角手柄共用 x1/y1~x2/y2，拖本体定位、拖角等比缩放。
         if (isSelected) {
           canvas.drawRect(
