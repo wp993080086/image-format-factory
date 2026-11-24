@@ -5,7 +5,9 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
+import '../../app/router.dart';
 import '../../core/image/annotation.dart';
 import '../../core/image/image_header_probe.dart';
 import '../editor/editor_controller.dart';
@@ -26,6 +28,19 @@ class AnnotatePage extends ConsumerWidget {
       appBar: AppBar(
         title: const Text('标注'),
         actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 4),
+            child: FilledButton.icon(
+              onPressed: state.canEdit
+                  ? () => context.push(AppRoutes.exportPanel)
+                  : null,
+              icon: const Icon(Icons.arrow_forward, size: 18),
+              label: const Text('导出'),
+              style: FilledButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+              ),
+            ),
+          ),
           IconButton(
             tooltip: '撤销 (Ctrl+Z)',
             icon: const Icon(Icons.undo),
@@ -142,6 +157,53 @@ class _TextInput {
   final int colorArgb;
 }
 
+/// 可选标注颜色：文字弹窗与属性条共用，避免两处列表漂移。
+const _kAnnotationColors = <int>[
+  0xFFFF0000,
+  0xFF00C853,
+  0xFF2962FF,
+  0xFFFFC400,
+  0xFFFFFFFF,
+  0xFF000000,
+];
+
+/// 颜色色块：选中项用主题色描边，白色块也有浅边框才看得见。
+class _ColorSwatches extends StatelessWidget {
+  const _ColorSwatches({required this.selected, required this.onChanged});
+
+  final int selected;
+  final ValueChanged<int> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Wrap(
+      spacing: 12,
+      runSpacing: 12,
+      children: [
+        for (final argb in _kAnnotationColors)
+          GestureDetector(
+            onTap: () => onChanged(argb),
+            child: Container(
+              width: 32,
+              height: 32,
+              decoration: BoxDecoration(
+                color: Color(argb),
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: argb == selected
+                      ? theme.colorScheme.primary
+                      : theme.dividerColor,
+                  width: argb == selected ? 3 : 1,
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
 /// 视图适配模式（长图关键：contain 会把长图缩成一条，改按宽度铺满后可上下拖动）。
 enum _FitMode {
   contain(Icons.aspect_ratio, '适应'),
@@ -171,6 +233,10 @@ class _AnnotateEditorState extends ConsumerState<_AnnotateEditor> {
   _Tool _tool = _Tool.select;
   _Mode _mode = _Mode.none;
   _Handle? _handle;
+
+  /// 轻点文字候选：命中文字本体时记录，出现真实位移即清除。
+  /// 用来在 end 时区分"轻点改内容"与"拖动定位"，同时避免空撤销。
+  int? _textTapCandidate;
 
   double _scale = 1;
   Offset _offset = Offset.zero;
@@ -395,16 +461,25 @@ class _AnnotateEditorState extends ConsumerState<_AnnotateEditor> {
     }
 
     // 命中优先：点到已有标注的手柄或本体就进入调整，只有点空白处才新建。
-    // 这样文字点本体不再重复弹窗、线/形状手柄生效、头像块落块后可直接拖动，
+    // 这样线/形状手柄生效、头像块落块后可直接拖动，
     // 且头像块无需切回"选择"工具也能连续放置（真机反馈的三个问题同源）。
     final hit = _hitTest(d.localFocalPoint, box);
     if (hit.mode == _Mode.move || hit.mode == _Mode.handle) {
       _mode = hit.mode;
       _handle = hit.handle;
       _controller.selectAnnotation(hit.index);
-      // 一次拖动 = 一次撤销：手势期间不逐帧压历史
-      _controller.beginAnnotationGesture();
-      _startAnnotation = _annotations[hit.index!];
+      final target = _annotations[hit.index!];
+      // 文字本体轻点留给 end 弹编辑窗；压历史推迟到确认真实拖动后，
+      // 否则纯轻点会留一次"什么都没改"的空撤销。
+      _textTapCandidate =
+          hit.mode == _Mode.move && target.type == AnnotationType.text
+          ? hit.index
+          : null;
+      if (_textTapCandidate == null) {
+        // 一次拖动 = 一次撤销：手势期间不逐帧压历史
+        _controller.beginAnnotationGesture();
+      }
+      _startAnnotation = target;
       _draftIndex = hit.index;
       return;
     }
@@ -472,16 +547,21 @@ class _AnnotateEditorState extends ConsumerState<_AnnotateEditor> {
     _mode = _Mode.view;
   }
 
-  /// 文字标注：在落点弹出输入框，确认后以该点为左上角创建标注。
-  /// 颜色在这里一次设定；字号固定，放置后用四角手柄等比缩放。
-  Future<void> _startTextAt(Offset origin) async {
-    final controller = TextEditingController();
-    var colorArgb = 0xFFFF0000;
+  /// 文字弹窗：新建（[origin] 为落点）或编辑已有文字（[editing] 为索引）。
+  /// 颜色在这里一次设定；字号固定 24，放置后用四角手柄等比缩放。
+  /// 编辑时保留位置与已缩放的字号，只改内容/颜色并按新内容重算框。
+  Future<void> _startTextAt(Offset origin, {int? editing}) async {
+    final existing = editing != null && editing < _annotations.length
+        ? _annotations[editing]
+        : null;
+    final controller = TextEditingController(text: existing?.text ?? '');
+    var colorArgb = existing?.colorArgb ?? 0xFFFF0000;
+    final isEdit = existing != null;
     final result = await showDialog<_TextInput>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          title: const Text('添加文字标注'),
+          title: Text(isEdit ? '编辑文字标注' : '添加文字标注'),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -502,33 +582,19 @@ class _AnnotateEditorState extends ConsumerState<_AnnotateEditor> {
                 ),
                 const SizedBox(height: 16),
                 Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('颜色'),
+                    const Padding(
+                      padding: EdgeInsets.only(top: 8),
+                      child: Text('颜色'),
+                    ),
                     const SizedBox(width: 12),
-                    for (final argb in [
-                      0xFFFF0000,
-                      0xFF00C853,
-                      0xFF2962FF,
-                      0xFFFFFFFF,
-                      0xFF000000,
-                    ])
-                      Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: GestureDetector(
-                          onTap: () => setDialogState(() => colorArgb = argb),
-                          child: Container(
-                            width: 28,
-                            height: 28,
-                            decoration: BoxDecoration(
-                              color: Color(argb),
-                              shape: BoxShape.circle,
-                              border: colorArgb == argb
-                                  ? Border.all(color: Colors.grey, width: 3)
-                                  : null,
-                            ),
-                          ),
-                        ),
+                    Expanded(
+                      child: _ColorSwatches(
+                        selected: colorArgb,
+                        onChanged: (v) => setDialogState(() => colorArgb = v),
                       ),
+                    ),
                   ],
                 ),
               ],
@@ -544,19 +610,24 @@ class _AnnotateEditorState extends ConsumerState<_AnnotateEditor> {
                 dialogContext,
                 _TextInput(controller.text.trim(), colorArgb),
               ),
-              child: const Text('添加'),
+              child: Text(isEdit ? '保存' : '添加'),
             ),
           ],
         ),
       ),
     );
-    // controller 交给对话框持有，_dialog 关闭后再由 Flutter 回收；
+    // controller 交给对话框持有，关闭后再由 Flutter 回收；
     // 这里不能提前 dispose——退出动画期间 TextField 仍会引用它。
     if (result == null || result.text.isEmpty || !mounted) return;
+
+    // 编辑保留原位置与字号（用户拖角缩放过），新建用落点与固定字号 24。
+    final fontSize = existing?.fontSize ?? 24;
+    final x1 = (existing?.x1 ?? origin.dx.round()).clamp(0, _source.width);
+    final y1 = (existing?.y1 ?? origin.dy.round()).clamp(0, _source.height);
+
     // 框按绘制端同一套 TextPainter 度量生成，四角手柄才能贴着文字；
     // 不加额外 padding——否则框右下多出一圈，看起来"文字偏上、框偏大"。
     // 框存原图坐标（除以 sx/sy），视图缩放只影响显示。
-    const fontSize = 24;
     final fit = _fitSize(MediaQuery.sizeOf(context));
     final sx = fit.width / _source.width;
     final sy = fit.height / _source.height;
@@ -575,19 +646,23 @@ class _AnnotateEditorState extends ConsumerState<_AnnotateEditor> {
     // 文字看起来"偏上"。下限保证框至少能包住一个字。
     final w = math.max(tp.width / sx, fontSize.toDouble());
     final h = math.max(tp.height / sy, fontSize.toDouble());
-    _controller.addAnnotation(
-      Annotation(
-        type: AnnotationType.text,
-        x1: origin.dx.round().clamp(0, _source.width),
-        y1: origin.dy.round().clamp(0, _source.height),
-        x2: (origin.dx + w).round().clamp(0, _source.width),
-        y2: (origin.dy + h).round().clamp(0, _source.height),
-        colorArgb: result.colorArgb,
-        strokeWidth: 3,
-        text: result.text,
-        fontSize: fontSize,
-      ),
+    final updated = Annotation(
+      type: AnnotationType.text,
+      x1: x1,
+      y1: y1,
+      x2: (x1 + w).round().clamp(0, _source.width),
+      y2: (y1 + h).round().clamp(0, _source.height),
+      colorArgb: result.colorArgb,
+      strokeWidth: 3,
+      text: result.text,
+      fontSize: fontSize,
     );
+    if (isEdit) {
+      // 编辑是一次独立操作，不在手势内，updateAnnotation 会正常压一次历史
+      _controller.updateAnnotation(editing!, updated);
+    } else {
+      _controller.addAnnotation(updated);
+    }
   }
 
   void _onScaleUpdate(ScaleUpdateDetails d, Size box) {
@@ -635,6 +710,11 @@ class _AnnotateEditorState extends ConsumerState<_AnnotateEditor> {
         if (base == null || idx == null) return;
         final dx = (now.dx - _startOrigin.dx).round();
         final dy = (now.dy - _startOrigin.dy).round();
+        if (_textTapCandidate != null && (dx != 0 || dy != 0)) {
+          // 确认是拖动而非轻点：此时才压历史，保证一次拖动一次撤销
+          _controller.beginAnnotationGesture();
+          _textTapCandidate = null;
+        }
         final shifted =
             base.type == AnnotationType.brush && base.points.length >= 2
             ? [
@@ -742,14 +822,20 @@ class _AnnotateEditorState extends ConsumerState<_AnnotateEditor> {
         }
       }
     }
+    final textTapIndex = _textTapCandidate;
     _controller.endAnnotationGesture();
     _mode = _Mode.none;
     _handle = null;
+    _textTapCandidate = null;
     _startAnnotation = null;
     _draftIndex = null;
     _draft = null;
     _zoomAnchor = null;
     setState(() {});
+    // 纯轻点已有文字：弹编辑窗改内容（拖动已在 update 阶段清掉候选）
+    if (textTapIndex != null && mounted) {
+      _startTextAt(Offset.zero, editing: textTapIndex);
+    }
   }
 
   void _applyZoom(ScaleUpdateDetails d, Size box) {
@@ -1064,9 +1150,11 @@ class _PropertyBar extends ConsumerWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // 文字、线、箭头、形状都要能改颜色；马赛克/涂抹的颜色是占位色，不给改
+            // 线/箭头/形状在属性条改色；文字改色在轻点编辑弹窗里一并完成；
+            // 马赛克/涂抹的颜色是占位色，不给改
             if (a.type != AnnotationType.mosaic &&
-                a.type != AnnotationType.brush)
+                a.type != AnnotationType.brush &&
+                a.type != AnnotationType.text)
               IconButton(
                 tooltip: '颜色',
                 icon: Icon(Icons.palette, color: color),
@@ -1171,28 +1259,13 @@ class _PropertyBar extends ConsumerWidget {
       builder: (context) => SimpleDialog(
         title: const Text('标注颜色'),
         children: [
-          for (final argb in [
-            0xFFFF0000,
-            0xFF00C853,
-            0xFF2962FF,
-            0xFFFFC400,
-            0xFFFFFFFF,
-            0xFF000000,
-          ])
-            SimpleDialogOption(
-              onPressed: () => Navigator.pop(context, argb),
-              child: Row(
-                children: [
-                  Container(
-                    width: 20,
-                    height: 20,
-                    color: Color(argb),
-                    margin: const EdgeInsets.only(right: 12),
-                  ),
-                  Text(argb.toRadixString(16)),
-                ],
-              ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 8, 24, 16),
+            child: _ColorSwatches(
+              selected: a.colorArgb,
+              onChanged: (v) => Navigator.pop(context, v),
             ),
+          ),
         ],
       ),
     );

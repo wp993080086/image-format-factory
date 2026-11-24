@@ -1048,7 +1048,7 @@ void main() {
     expect(anns().last.strokeWidth, initialWidth, reason: '连续拖动应合并为一次撤销');
   });
 
-  testWidgets('标注页：文字工具下点已有文字本体不重复弹窗，可拖动定位', (tester) async {
+  testWidgets('标注页：轻点文字本体弹编辑窗可改内容，拖动只定位不弹窗', (tester) async {
     await _bootHome(tester, size: const ImageDimensions(256, 256));
     await _importImage(tester);
     await tester.tap(find.text('标注与打码'));
@@ -1073,23 +1073,47 @@ void main() {
     final textRect = tester.getRect(
       find.byKey(const ValueKey('annotateCanvas')),
     );
-    final textStart = Offset(textRect.left + 80, textRect.top + 80);
+    final textBox = textRect.size;
+    final textFit = textBox.width < textBox.height
+        ? textBox.width
+        : textBox.height;
+    final textOrigin = Offset(
+      (textBox.width - textFit) / 2,
+      (textBox.height - textFit) / 2,
+    );
+    Offset textCenter(Annotation a) => Offset(
+      textRect.left + textOrigin.dx + (a.x1 + a.x2) / 2 * textFit / 256,
+      textRect.top + textOrigin.dy + (a.y1 + a.y2) / 2 * textFit / 256,
+    );
 
-    // 再次点文字本体（文字工具仍激活）：命中优先 → 选中，不再弹输入框
-    await tester.tapAt(textStart);
+    // 轻点文字本体中心（避开四角手柄）：命中优先 → 选中并弹编辑窗
+    await tester.tapAt(textCenter(anns().first));
     await tester.pumpAndSettle();
-    expect(find.text('添加文字标注'), findsNothing, reason: '点已有文字不应重复弹窗');
+    expect(find.text('编辑文字标注'), findsOneWidget, reason: '轻点文字应弹编辑窗');
     expect(
       container.read(editorControllerProvider).selectedAnnotation,
       0,
       reason: '点文字本体应选中它',
     );
 
-    // 拖动文字本体可改变位置（x1 增大）
+    // 改内容并保存
+    await tester.enterText(find.byType(TextField).first, '改名');
+    await tester.tap(find.widgetWithText(FilledButton, '保存'));
+    await tester.pumpAndSettle();
+    expect(anns().first.text, '改名', reason: '编辑应更新文字内容');
+    expect(anns().length, 1, reason: '编辑不应新增标注');
+    expect(
+      find.byWidgetPredicate((w) => w is IconButton && w.tooltip == '颜色'),
+      findsNothing,
+      reason: '文字颜色在编辑弹窗里改，属性条不显示颜色按钮',
+    );
+
+    // 拖动文字本体可改变位置（x1 增大），且不弹编辑窗
     final before = anns().first.x1;
-    await tester.dragFrom(textStart, const Offset(40, 0));
+    await tester.dragFrom(textCenter(anns().first), const Offset(40, 0));
     await tester.pumpAndSettle();
     expect(anns().first.x1, greaterThan(before), reason: '文字应可整体拖动定位');
+    expect(find.text('编辑文字标注'), findsNothing, reason: '拖动不应弹编辑窗');
   });
 
   testWidgets('标注页：文字四角手柄等比缩放，字号随框同步变化', (tester) async {
@@ -1172,5 +1196,60 @@ void main() {
       closeTo(70 / 28, 0.2),
       reason: '昵称条宽高比应接近 70:28',
     );
+  });
+
+  testWidgets('标注页：顶部导出按钮进入导出面板', (tester) async {
+    await _bootHome(tester, size: const ImageDimensions(256, 256));
+    await _importImage(tester);
+    await tester.tap(find.text('标注与打码'));
+    await tester.pumpAndSettle();
+
+    final export = find.widgetWithText(FilledButton, '导出');
+    expect(export, findsOneWidget);
+    await tester.tap(export);
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(FilledButton, '导出 PNG'), findsOneWidget);
+  });
+
+  testWidgets('标注页：属性条颜色弹窗用色块而不是十六进制串', (tester) async {
+    await _bootHome(tester, size: const ImageDimensions(256, 256));
+    await _importImage(tester);
+    await tester.tap(find.text('标注与打码'));
+    await tester.pumpAndSettle();
+
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(Scaffold).first),
+    );
+    List<Annotation> anns() =>
+        container.read(editorControllerProvider).annotations;
+
+    await tester.tap(find.widgetWithText(ChoiceChip, '矩形'));
+    await tester.pumpAndSettle();
+    final rect = tester.getRect(find.byKey(const ValueKey('annotateCanvas')));
+    await tester.dragFrom(
+      Offset(rect.left + 60, rect.top + 60),
+      const Offset(80, 60),
+    );
+    await tester.pumpAndSettle();
+
+    final colorButton = find.byWidgetPredicate(
+      (w) => w is IconButton && w.tooltip == '颜色',
+    );
+    expect(colorButton, findsOneWidget);
+    await tester.tap(colorButton);
+    await tester.pumpAndSettle();
+
+    expect(find.text('标注颜色'), findsOneWidget);
+    expect(find.text('ffff0000'), findsNothing, reason: '不再显示十六进制串');
+    final swatches = find.byWidgetPredicate(
+      (w) =>
+          w is Container &&
+          w.decoration is BoxDecoration &&
+          (w.decoration as BoxDecoration).shape == BoxShape.circle,
+    );
+    expect(swatches, findsNWidgets(6), reason: '颜色应以 6 个色块展示');
+    await tester.tap(swatches.at(2));
+    await tester.pumpAndSettle();
+    expect(anns().last.colorArgb, 0xFF2962FF, reason: '点色块应改标注颜色');
   });
 }
