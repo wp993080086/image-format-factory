@@ -182,6 +182,13 @@ class BatchController extends Notifier<BatchState> {
   /// 批量目标格式是否受当前端能力支持（由 UI 决定展示哪些格式选项）。
   bool canExport(ImageFormat format) =>
       ref.read(capabilitiesProvider).canExport(format);
+
+  /// 当前端能否逐帧重编码动图（决定动图开关是否展示）。
+  bool get canExportAnimation =>
+      ref.read(capabilitiesProvider).animatedReencode;
+
+  /// 本批里是否有动图源，只有动图源才需要动图导出开关。
+  bool get hasAnimatedItem => state.items.any((item) => item.animated);
 }
 
 final batchControllerProvider = NotifierProvider<BatchController, BatchState>(

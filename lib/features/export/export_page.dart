@@ -44,6 +44,9 @@ class _ExportPageState extends ConsumerState<ExportPage> {
   /// PNG 调色板压缩（PNG8），默认关（PRD 五.2）。
   bool _pngPalette = false;
 
+  /// GIF 动图导出：仅动图源 + GIF 目标时显示，默认关（保持静态首帧行为）。
+  bool _exportAnimation = false;
+
   /// 预估输出体积（字节）；null 表示未算出或该格式不预估（ICO）。
   int? _estimate;
   bool _estimating = false;
@@ -247,6 +250,7 @@ class _ExportPageState extends ConsumerState<ExportPage> {
       jpegChroma: _jpegChroma,
       pngLevel: _pngLevel,
       pngPalette: _pngPalette,
+      exportAnimation: _exportAnimation,
     );
   }
 
@@ -465,6 +469,17 @@ class _ExportPageState extends ConsumerState<ExportPage> {
             height: size.height,
             selected: icoSelected,
             onToggle: (option, on) => _toggleIcoSize(option, on, icoSelected),
+          ),
+        if (target == ImageFormat.gif &&
+            imported.isAnimated &&
+            ref.read(capabilitiesProvider).animatedReencode)
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            dense: true,
+            value: _exportAnimation,
+            onChanged: (value) => setState(() => _exportAnimation = value),
+            title: const Text('导出为动图'),
+            subtitle: const Text('保留源 GIF 的帧序与延时；关闭则只导出首帧'),
           ),
         for (final hint in hints) ...[
           const SizedBox(height: 12),

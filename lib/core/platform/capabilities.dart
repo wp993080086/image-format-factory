@@ -39,8 +39,9 @@ class PlatformCapabilities {
 
   /// 动图重编码（GIF/APNG 重新导出，高阶可选功能）。
   ///
-  /// 全端 false：需求池 L-03 尚未实现，导入侧只取首帧，导出也只产静态图。
-  /// 曾经三端标 true 但无任何代码引用——与 SVG 标 ✅ 是同一类不实能力位。
+  /// Windows / Android 为 true：GIF 逐帧重编码已接入导出面板与批量配置
+  /// （保留帧序、延时、循环；仅 GIF 生效，APNG 仍只取首帧）。
+  /// 其余端为 false，避免重演「能力位说有、代码没有」。
   final bool animatedReencode;
 
   /// 像素上限（PRD 九.3 表）：超过则拒绝，不做降级。
@@ -63,7 +64,12 @@ class PlatformCapabilities {
       target: target,
       // HEIC/HEIF 走 FFI 调随包分发的 libheif（Windows 不像 Android 有系统解码器）
       // v0.5/M3：加入 TIFF 双向、GIF 动图导出、AVIF 双向（随包 avifenc/avifdec CLI）。
-      importFormats: {..._mainstreamImport, ImageFormat.heic, ImageFormat.tiff, ImageFormat.avif},
+      importFormats: {
+        ..._mainstreamImport,
+        ImageFormat.heic,
+        ImageFormat.tiff,
+        ImageFormat.avif,
+      },
       exportFormats: {
         ..._mainstreamExport,
         ImageFormat.ico,
@@ -76,7 +82,7 @@ class PlatformCapabilities {
       pasteImport: false,
       albumPickImport: false,
       systemSavePanel: true,
-      animatedReencode: false,
+      animatedReencode: true,
       maxPixels: 100 * 1000 * 1000,
     ),
     AppTarget.android => PlatformCapabilities(
@@ -86,7 +92,12 @@ class PlatformCapabilities {
       // 选到打不开的文件。
       // AVIF 走系统 ImageDecoder 解码（Android 12+），可导入；
       // 系统无 AVIF 编码器，导出能力位不开——见 AvifCodec.canEncodeFor。
-      importFormats: {..._mainstreamImport, ImageFormat.heic, ImageFormat.tiff, ImageFormat.avif},
+      importFormats: {
+        ..._mainstreamImport,
+        ImageFormat.heic,
+        ImageFormat.tiff,
+        ImageFormat.avif,
+      },
       // WebP 走系统 Bitmap.compress(WEBP)，零新增依赖；TIFF/GIF 纯 Dart
       exportFormats: {
         ..._mainstreamExport,
@@ -100,7 +111,7 @@ class PlatformCapabilities {
       albumPickImport: false,
       // 已落地：SAF ACTION_CREATE_DOCUMENT（ADR-007）
       systemSavePanel: true,
-      animatedReencode: false,
+      animatedReencode: true,
       maxPixels: 32 * 1000 * 1000,
     ),
     AppTarget.harmony => PlatformCapabilities(

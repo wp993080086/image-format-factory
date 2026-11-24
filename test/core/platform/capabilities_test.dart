@@ -60,12 +60,24 @@ void main() {
       expect(windows.canImport(ImageFormat.tiff), isTrue);
       expect(android.canImport(ImageFormat.tiff), isTrue);
       for (final caps in [harmony, web, mini]) {
-        expect(caps.canImport(ImageFormat.tiff), isFalse, reason: '${caps.target}');
+        expect(
+          caps.canImport(ImageFormat.tiff),
+          isFalse,
+          reason: '${caps.target}',
+        );
       }
       // TGA / PPM 仍留需求池，全端关闭
       for (final caps in [windows, android, harmony, web, mini]) {
-        expect(caps.canImport(ImageFormat.tga), isFalse, reason: '${caps.target}');
-        expect(caps.canImport(ImageFormat.ppm), isFalse, reason: '${caps.target}');
+        expect(
+          caps.canImport(ImageFormat.tga),
+          isFalse,
+          reason: '${caps.target}',
+        );
+        expect(
+          caps.canImport(ImageFormat.ppm),
+          isFalse,
+          reason: '${caps.target}',
+        );
       }
     });
 
@@ -84,7 +96,8 @@ void main() {
         // APNG 与 PNG 共用扩展名，故扩展名数量少于格式数量
         expect(exts, containsAll(['jpg', 'png', 'bmp', 'webp', 'gif', 'ico']));
         // v0.5：tif 只在 Windows/Android 的导入并集里
-        if (caps.target == AppTarget.windows || caps.target == AppTarget.android) {
+        if (caps.target == AppTarget.windows ||
+            caps.target == AppTarget.android) {
           expect(exts, contains('tif'));
         } else {
           expect(exts, isNot(contains('tif')));
@@ -128,7 +141,11 @@ void main() {
       // AVIF：Windows 随包 avifenc CLI 可编码；Android 系统无 AVIF 编码器。
       expect(windows.canExport(ImageFormat.avif), isTrue);
       for (final caps in [android, harmony, web, mini]) {
-        expect(caps.canExport(ImageFormat.avif), isFalse, reason: '${caps.target}');
+        expect(
+          caps.canExport(ImageFormat.avif),
+          isFalse,
+          reason: '${caps.target}',
+        );
       }
     });
 
@@ -169,8 +186,10 @@ void main() {
       expect(harmony.systemSavePanel, isFalse);
     });
 
-    test('动图重编码全端关闭（L-03 未实现，导入只取首帧）', () {
-      for (final caps in [windows, android, harmony, web, mini]) {
+    test('GIF 逐帧重编码仅在 Windows / Android 开放', () {
+      expect(windows.animatedReencode, isTrue);
+      expect(android.animatedReencode, isTrue);
+      for (final caps in [harmony, web, mini]) {
         expect(caps.animatedReencode, isFalse);
       }
     });

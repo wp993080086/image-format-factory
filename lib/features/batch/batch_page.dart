@@ -179,6 +179,17 @@ class _ConfigCard extends StatelessWidget {
                 }
               },
             ),
+            if (config.targetFormat == ImageFormat.gif &&
+                notifier.hasAnimatedItem &&
+                notifier.canExportAnimation)
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('导出为动图'),
+                subtitle: const Text('保留源 GIF 的帧序与延时；关闭则只导出首帧'),
+                value: config.exportAnimation,
+                onChanged: (on) =>
+                    notifier.updateConfig(config.copyWith(exportAnimation: on)),
+              ),
             const SizedBox(height: 12),
             Text('JPEG/WebP 质量：${config.quality}'),
             Slider(

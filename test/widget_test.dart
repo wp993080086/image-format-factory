@@ -22,14 +22,18 @@ import 'package:pixel_forge/services/file/import_service.dart';
 
 /// 导入/解码替身：返回一张 4×4 的假图，避免测试依赖真实文件选择器与解码。
 class _FakeImportService extends ImportService {
-  _FakeImportService() : super(PlatformCapabilities.of(AppTarget.windows));
+  _FakeImportService({this.animated = false, this.format = ImageFormat.png})
+    : super(PlatformCapabilities.of(AppTarget.windows));
+
+  final bool animated;
+  final ImageFormat format;
 
   @override
   Future<ImportResult?> pickImage() async => ImportResult(
-    fileName: 'a.png',
+    fileName: animated ? 'a.gif' : 'a.png',
     bytes: Uint8List.fromList([1, 2, 3]),
-    format: ImageFormat.png,
-    isAnimated: false,
+    format: format,
+    isAnimated: animated,
     extensionMismatch: false,
   );
 }
@@ -127,6 +131,7 @@ Future<void> _bootHome(
   Size viewSize = const Size(1000, 1400),
   EncodeService? encodeService,
   ExportService? exportService,
+  ImportService? importService,
 }) async {
   // 裁剪页底部参数面板较高，默认 800×600 视口会把画布压到溢出
   tester.view.physicalSize = viewSize;
@@ -135,7 +140,9 @@ Future<void> _bootHome(
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
-        importServiceProvider.overrideWithValue(_FakeImportService()),
+        importServiceProvider.overrideWithValue(
+          importService ?? _FakeImportService(),
+        ),
         decodeServiceProvider.overrideWithValue(
           _FakeDecodeService(size, hasSemiTransparent),
         ),
@@ -1263,5 +1270,39 @@ void main() {
     await tester.tap(swatches.at(2));
     await tester.pumpAndSettle();
     expect(anns().last.colorArgb, 0xFF2962FF, reason: '点色块应改标注颜色');
+  });
+
+  testWidgets('导出面板：GIF 动图开关仅对动图源显示并透传到编码', (tester) async {
+    final encode = _RecordingEncodeService();
+    await _bootHome(
+      tester,
+      importService: _FakeImportService(
+        animated: true,
+        format: ImageFormat.gif,
+      ),
+      encodeService: encode,
+    );
+    await _importImage(tester);
+    await tester.tap(find.text('格式转换'));
+    await tester.pumpAndSettle();
+
+    final toggle = find.widgetWithText(SwitchListTile, '导出为动图');
+    expect(toggle, findsOneWidget);
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, '导出 GIF'));
+    await tester.pumpAndSettle();
+
+    expect(encode.lastRequest, isNotNull);
+    expect(encode.lastRequest!.format, ImageFormat.gif);
+    expect(encode.lastRequest!.exportAnimation, isTrue, reason: '开关应透传到编码请求');
+  });
+
+  testWidgets('导出面板：静态源不显示 GIF 动图开关', (tester) async {
+    await _bootHome(tester);
+    await _importImage(tester);
+    await tester.tap(find.text('格式转换'));
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(SwitchListTile, '导出为动图'), findsNothing);
   });
 }

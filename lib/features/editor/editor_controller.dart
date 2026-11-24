@@ -380,7 +380,8 @@ class EditorController extends Notifier<EditorState> {
   ///
   /// [format] 须在 `EncodeService.exportableFormats` 内；[quality] 仅对 JPEG 生效；
   /// [icoSizes] 仅对 ICO 生效，为空时取全部可生成尺寸；
-  /// [jpegChroma] / [pngLevel] / [pngPalette] 分别只对 JPEG / PNG 生效。
+  /// [jpegChroma] / [pngLevel] / [pngPalette] 分别只对 JPEG / PNG 生效；
+  /// [exportAnimation] 仅对 GIF + 动图源生效，逐帧保留帧序、延时与循环。
   Future<void> export({
     required ImageFormat format,
     required int quality,
@@ -388,6 +389,7 @@ class EditorController extends Notifier<EditorState> {
     JpegChromaOption jpegChroma = JpegChromaOption.yuv420,
     int pngLevel = 6,
     bool pngPalette = false,
+    bool exportAnimation = false,
   }) async {
     final imported = state.imported;
     if (state.busy || !state.canEdit || imported == null) return;
@@ -443,6 +445,7 @@ class EditorController extends Notifier<EditorState> {
               jpegChroma: jpegChroma,
               pngLevel: pngLevel,
               pngPalette: pngPalette,
+              exportAnimation: exportAnimation && imported.isAnimated,
               annotations: annotations,
               blur: state.blur,
             ),
