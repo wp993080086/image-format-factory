@@ -114,7 +114,6 @@ void main() {
       expect(AvifCodec.isSupportedFor(AppTarget.windows), isTrue);
       expect(AvifCodec.isSupportedFor(AppTarget.android), isTrue);
       expect(AvifCodec.isSupportedFor(AppTarget.harmony), isFalse);
-      expect(AvifCodec.isSupportedFor(AppTarget.web), isFalse);
       expect(AvifCodec.canEncodeFor(AppTarget.windows), isTrue);
       expect(AvifCodec.canEncodeFor(AppTarget.android), isFalse);
     });

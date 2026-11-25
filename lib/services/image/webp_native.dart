@@ -1,4 +1,4 @@
-// WebP 原生编码能力入口（Windows 走 FFI，Web 端无实现）。
+// WebP 原生编码能力入口（Windows 走 FFI，Android 走系统通道）。
 //
-// 条件导出：Web 端没有 `dart:ffi`，只能拿到空实现。
-export 'webp_native_stub.dart' if (dart.library.ffi) 'webp_native_ffi.dart';
+// 直接导出 FFI 实现：Windows / Android 均支持 dart:ffi。
+export 'webp_native_ffi.dart';

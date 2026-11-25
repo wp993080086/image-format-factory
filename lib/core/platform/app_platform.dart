@@ -1,17 +1,13 @@
-import 'package:flutter/foundation.dart';
-
-import 'app_platform_impl_stub.dart'
-    if (dart.library.io) 'app_platform_impl_native.dart';
+import 'app_platform_impl_native.dart';
 
 /// 应用运行的目标端。
 ///
 /// 对应 PRD「七、多端差异化策略」：
-/// Windows（首发基线）→ HarmonyOS Next（优先级高于 Android）→ Android → Web → 微信小程序。
+/// Windows（首发基线）→ HarmonyOS Next（优先级高于 Android）→ Android → 微信小程序。
 enum AppTarget {
   windows('Windows'),
   harmony('HarmonyOS Next'),
   android('Android'),
-  web('Web'),
   wechatMini('微信小程序');
 
   const AppTarget(this.displayName);
@@ -31,7 +27,6 @@ class AppPlatform {
   static AppTarget get current => _cached ??= _detect();
 
   static AppTarget _detect() {
-    if (kIsWeb) return AppTarget.web;
     return detectNativeTarget();
   }
 }

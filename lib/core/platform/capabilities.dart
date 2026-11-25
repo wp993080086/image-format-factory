@@ -10,7 +10,6 @@ class PlatformCapabilities {
     required this.importFormats,
     required this.exportFormats,
     required this.dragDropImport,
-    required this.pasteImport,
     required this.albumPickImport,
     required this.systemSavePanel,
     required this.animatedReencode,
@@ -28,13 +27,10 @@ class PlatformCapabilities {
   /// 拖拽导入（仅 Windows）。
   final bool dragDropImport;
 
-  /// 粘贴图片导入（仅 Web）。
-  final bool pasteImport;
-
   /// 相册选择导入（微信小程序）。
   final bool albumPickImport;
 
-  /// 唤起系统保存面板导出（Web 无此能力，走下载通道）。
+  /// 唤起系统保存面板导出。
   final bool systemSavePanel;
 
   /// 动图重编码（GIF/APNG 重新导出，高阶可选功能）。
@@ -46,7 +42,7 @@ class PlatformCapabilities {
 
   /// 像素上限（PRD 九.3 表）：超过则拒绝，不做降级。
   ///
-  /// 依据：Windows 100MP、Android/鸿蒙 32MP、Web 桌面 50MP、Web 移动 16MP。
+  /// 依据：Windows 100MP、Android/鸿蒙 32MP。
   final int maxPixels;
 
   bool canImport(ImageFormat f) => importFormats.contains(f);
@@ -79,7 +75,6 @@ class PlatformCapabilities {
         ImageFormat.avif,
       },
       dragDropImport: true,
-      pasteImport: false,
       albumPickImport: false,
       systemSavePanel: true,
       animatedReencode: true,
@@ -107,7 +102,6 @@ class PlatformCapabilities {
         ImageFormat.gif,
       },
       dragDropImport: false,
-      pasteImport: false,
       albumPickImport: false,
       // 已落地：SAF ACTION_CREATE_DOCUMENT（ADR-007）
       systemSavePanel: true,
@@ -119,7 +113,6 @@ class PlatformCapabilities {
       importFormats: _mainstreamImport,
       exportFormats: {..._mainstreamExport, ImageFormat.ico},
       dragDropImport: false,
-      pasteImport: false,
       albumPickImport: false,
       // 未落地：鸿蒙无 SAF 等价物，ADR-007 定的 share_plus 通道尚未接入（M3）。
       // 能力位如实写 false——不能重蹈 SVG 那次「三端标 ✅ 实际没有」的覆辙。
@@ -127,24 +120,11 @@ class PlatformCapabilities {
       animatedReencode: false,
       maxPixels: 32 * 1000 * 1000,
     ),
-    AppTarget.web => PlatformCapabilities(
-      target: target,
-      importFormats: _mainstreamImport,
-      exportFormats: _mainstreamExport,
-      dragDropImport: false,
-      pasteImport: true,
-      albumPickImport: false,
-      systemSavePanel: false,
-      animatedReencode: false,
-      // 取桌面浏览器上限；移动浏览器 16MP 需运行时判定（PRD 附录 #15 待实测）
-      maxPixels: 50 * 1000 * 1000,
-    ),
     AppTarget.wechatMini => PlatformCapabilities(
       target: target,
       importFormats: _mainstreamImport,
       exportFormats: _mainstreamExport,
       dragDropImport: false,
-      pasteImport: false,
       albumPickImport: true,
       systemSavePanel: false,
       animatedReencode: false,

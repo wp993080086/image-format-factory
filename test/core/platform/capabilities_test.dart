@@ -11,7 +11,6 @@ void main() {
   final windows = PlatformCapabilities.of(AppTarget.windows);
   final android = PlatformCapabilities.of(AppTarget.android);
   final harmony = PlatformCapabilities.of(AppTarget.harmony);
-  final web = PlatformCapabilities.of(AppTarget.web);
   final mini = PlatformCapabilities.of(AppTarget.wechatMini);
 
   group('导入（PRD 十章导入表）', () {
@@ -25,7 +24,7 @@ void main() {
         ImageFormat.apng,
         ImageFormat.ico,
       };
-      for (final caps in [windows, android, harmony, web, mini]) {
+      for (final caps in [windows, android, harmony, mini]) {
         expect(
           caps.importFormats,
           containsAll(mainstream),
@@ -38,7 +37,7 @@ void main() {
       // Android：系统内置 HEVC 解码；Windows：随包分发 libheif
       expect(android.canImport(ImageFormat.heic), isTrue);
       expect(windows.canImport(ImageFormat.heic), isTrue);
-      for (final caps in [harmony, web, mini]) {
+      for (final caps in [harmony, mini]) {
         expect(
           caps.canImport(ImageFormat.heic),
           isFalse,
@@ -50,7 +49,7 @@ void main() {
     test('AVIF 导入：Windows 走 CLI、Android 走系统解码，其余端关闭', () {
       expect(windows.canImport(ImageFormat.avif), isTrue);
       expect(android.canImport(ImageFormat.avif), isTrue);
-      for (final caps in [harmony, web, mini]) {
+      for (final caps in [harmony, mini]) {
         expect(caps.canImport(ImageFormat.avif), isFalse);
       }
     });
@@ -59,7 +58,7 @@ void main() {
       // TIFF 随 v0.5 优先级调整拉回（附录 #8 结论作废），仅双端先行
       expect(windows.canImport(ImageFormat.tiff), isTrue);
       expect(android.canImport(ImageFormat.tiff), isTrue);
-      for (final caps in [harmony, web, mini]) {
+      for (final caps in [harmony, mini]) {
         expect(
           caps.canImport(ImageFormat.tiff),
           isFalse,
@@ -67,7 +66,7 @@ void main() {
         );
       }
       // TGA / PPM 仍留需求池，全端关闭
-      for (final caps in [windows, android, harmony, web, mini]) {
+      for (final caps in [windows, android, harmony, mini]) {
         expect(
           caps.canImport(ImageFormat.tga),
           isFalse,
@@ -82,13 +81,13 @@ void main() {
     });
 
     test('SVG 全端关闭（无光栅化能力，ADR-004 方案未接入）', () {
-      for (final caps in [windows, android, harmony, web, mini]) {
+      for (final caps in [windows, android, harmony, mini]) {
         expect(caps.canImport(ImageFormat.svg), isFalse);
       }
     });
 
     test('扩展名并集与导入集合一致，不出现未支持格式', () {
-      for (final caps in [windows, android, harmony, web, mini]) {
+      for (final caps in [windows, android, harmony, mini]) {
         final exts = caps.importExtensions.toSet();
         expect(exts.contains('svg'), isFalse);
         expect(exts.contains('tga'), isFalse);
@@ -111,7 +110,7 @@ void main() {
       // Windows：FFI 调 libwebp；Android：系统 Bitmap.compress(WEBP)
       expect(windows.canExport(ImageFormat.webp), isTrue);
       expect(android.canExport(ImageFormat.webp), isTrue);
-      for (final caps in [harmony, web, mini]) {
+      for (final caps in [harmony, mini]) {
         expect(
           caps.canExport(ImageFormat.webp),
           isFalse,
@@ -120,11 +119,10 @@ void main() {
       }
     });
 
-    test('ICO 仅 Web 与小程序之外的三端可导出', () {
+    test('ICO 仅小程序之外的端可导出', () {
       expect(windows.canExport(ImageFormat.ico), isTrue);
       expect(android.canExport(ImageFormat.ico), isTrue);
       expect(harmony.canExport(ImageFormat.ico), isTrue);
-      expect(web.canExport(ImageFormat.ico), isFalse);
       expect(mini.canExport(ImageFormat.ico), isFalse);
     });
 
@@ -134,13 +132,13 @@ void main() {
       expect(android.canExport(ImageFormat.tiff), isTrue);
       expect(windows.canExport(ImageFormat.gif), isTrue);
       expect(android.canExport(ImageFormat.gif), isTrue);
-      for (final caps in [harmony, web, mini]) {
+      for (final caps in [harmony, mini]) {
         expect(caps.canExport(ImageFormat.tiff), isFalse);
         expect(caps.canExport(ImageFormat.gif), isFalse);
       }
       // AVIF：Windows 随包 avifenc CLI 可编码；Android 系统无 AVIF 编码器。
       expect(windows.canExport(ImageFormat.avif), isTrue);
-      for (final caps in [android, harmony, web, mini]) {
+      for (final caps in [android, harmony, mini]) {
         expect(
           caps.canExport(ImageFormat.avif),
           isFalse,
@@ -150,7 +148,7 @@ void main() {
     });
 
     test('JPEG / PNG / BMP 全端可导出', () {
-      for (final caps in [windows, android, harmony, web, mini]) {
+      for (final caps in [windows, android, harmony, mini]) {
         expect(caps.canExport(ImageFormat.jpeg), isTrue);
         expect(caps.canExport(ImageFormat.png), isTrue);
         expect(caps.canExport(ImageFormat.bmp), isTrue);
@@ -163,20 +161,11 @@ void main() {
       expect(windows.dragDropImport, isTrue);
       expect(android.dragDropImport, isFalse);
       expect(harmony.dragDropImport, isFalse);
-      expect(web.dragDropImport, isFalse);
       expect(mini.dragDropImport, isFalse);
     });
 
-    test('粘贴导入仅 Web', () {
-      expect(web.pasteImport, isTrue);
-      for (final caps in [windows, android, harmony, mini]) {
-        expect(caps.pasteImport, isFalse);
-      }
-    });
-
-    test('系统保存面板：Web 与小程序没有', () {
+    test('系统保存面板：小程序没有', () {
       expect(windows.systemSavePanel, isTrue);
-      expect(web.systemSavePanel, isFalse);
       expect(mini.systemSavePanel, isFalse);
     });
 
@@ -189,19 +178,17 @@ void main() {
     test('GIF 逐帧重编码仅在 Windows / Android 开放', () {
       expect(windows.animatedReencode, isTrue);
       expect(android.animatedReencode, isTrue);
-      for (final caps in [harmony, web, mini]) {
+      for (final caps in [harmony, mini]) {
         expect(caps.animatedReencode, isFalse);
       }
     });
   });
 
   group('像素上限（PRD 九.3）', () {
-    test('按端给出 100 / 32 / 50 / 16 MP', () {
+    test('按端给出 100 / 32 / 16 MP', () {
       expect(windows.maxPixels, 100 * 1000 * 1000);
       expect(android.maxPixels, 32 * 1000 * 1000);
       expect(harmony.maxPixels, 32 * 1000 * 1000);
-      // Web 取桌面浏览器上限；移动浏览器 16MP 需运行时判定（附录 #15）
-      expect(web.maxPixels, 50 * 1000 * 1000);
       expect(mini.maxPixels, 16 * 1000 * 1000);
     });
   });

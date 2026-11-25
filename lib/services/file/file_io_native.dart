@@ -12,9 +12,7 @@ Future<void> writeBytesToFile(String path, Uint8List bytes) async {
 
 /// 把写盘异常归类到 PRD 九.2 的错误码；不是文件系统错误时返回 null。
 ///
-/// 放在这个文件而不是 `core/`：判定要用 `FileSystemException`，而
-/// `dart:io` 在 Web 上不可用。跟着 `writeBytesToFile` 一起走条件导出，
-/// Web 端自然拿到空实现。
+/// 放在这个文件而不是 `core/`：判定要用 `FileSystemException`，需要 `dart:io`。
 AppErrorCode? classifyFileSystemError(Object error, AppTarget target) {
   if (error is! FileSystemException) return null;
 

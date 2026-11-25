@@ -80,7 +80,7 @@ class EditorState {
   /// 进度 0.0–1.0。
   final double progress;
 
-  /// 导出成功后的本地路径（done 态有值；Web 端下载通道为 null）。
+  /// 导出成功后的本地路径（done 态有值）。
   final String? exportedPath;
 
   /// 裁剪选区（原图坐标系）。null 表示未设置，导出时视为不裁剪。

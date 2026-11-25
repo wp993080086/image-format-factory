@@ -72,7 +72,7 @@ image-4.12.0/lib/src/formats/
 
 ### 🔴 硬伤 2：SVG 导入无法遵守「纯 Dart 铁律」
 
-**PRD 怎么说**：一.导入列 SVG；一.边界 1「仅渲染为位图导出，光栅化尺寸在导入时选择」；十章给 Windows/鸿蒙/Android/Web 全打 ✅。
+**PRD 怎么说**：一.导入列 SVG；一.边界 1「仅渲染为位图导出，光栅化尺寸在导入时选择」；十章给 Windows/鸿蒙/Android 全打 ✅。
 
 **实测结果**：`image` 包 `formats/` 下**无任何 SVG 解码器**（确认无 svg 相关文件）。纯 Dart 生态也基本没有可用于生产的光栅化器。
 
@@ -80,13 +80,12 @@ image-4.12.0/lib/src/formats/
 
 **影响**：
 1. 直接违反七.2「图像编解码全部走纯 Dart 库」的架构铁律——PRD 需要明确写「SVG 光栅化是铁律的唯一例外」。
-2. Web 端风险高：`flutter_svg` 在 CanvasKit 下可用，但 HTML renderer 下表现差异大；若最终切 wasm，还需额外验证。
-3. **单元测试无法覆盖**：`flutter test` 无 GPU 上下文时 `toImage()` 行为不稳定，SVG 光栅化只能靠集成测试/golden 测试。
-4. 二.3 的「钳制上限 = 原图对应边尺寸」对 SVG 语义不成立——**SVG 的「原图尺寸」是什么？** 光栅化选 512 后再裁剪，上限是 512 还是 viewBox？PRD 没答。
+2. **单元测试无法覆盖**：`flutter test` 无 GPU 上下文时 `toImage()` 行为不稳定，SVG 光栅化只能靠集成测试/golden 测试。
+3. 二.3 的「钳制上限 = 原图对应边尺寸」对 SVG 语义不成立——**SVG 的「原图尺寸」是什么？** 光栅化选 512 后再裁剪，上限是 512 还是 viewBox？PRD 没答。
 
 **建议**：
 - 在七.2 补一条明确例外：「SVG 光栅化允许依赖 Flutter Engine，其余链路仍为纯 Dart」
-- 把 SVG 从 MVP 的 ✅ 降为「Windows 先行，Android/鸿蒙跟随，Web 待定」
+- 把 SVG 从 MVP 的 ✅ 降为「Windows 先行，Android/鸿蒙跟随」
 - 明确 SVG 的「原图」= 导入时光栅化所得的位图，裁剪上限以光栅化后尺寸为准
 
 ---
@@ -111,7 +110,6 @@ image-4.12.0/lib/src/formats/
 | Windows | `file_selector.openFile` + 拖拽 | `file_selector.getSaveLocation` → 写文件 |
 | Android | `file_selector.openFile`（13+ Photo Picker） | 方案待定：① `flutter_file_dialog` SAF ② MediaStore ③ 先写临时目录再 `share_plus` 分享 |
 | 鸿蒙 | 对应 `file_selector_ohos` | 同上，需核对 ohos 变体包 |
-| Web | `<input type=file>` / paste | Blob + `<a download>` |
 | 小程序 | `wx.chooseMedia` | `wx.saveImageToPhotosAlbum` |
 
 这张表不定，移动端导出就是个空头承诺。
@@ -155,9 +153,6 @@ Android 中低端机 heap 上限普遍 256–512 MB，鸿蒙同档。**100MP 在
 |----|---------|------|
 | Windows | 100 MP | 桌面内存充足 |
 | Android / 鸿蒙 | **24–32 MP**（约 128 MB 位图） | 中端机 heap 512 MB，留 3× 余量 |
-| Web | 桌面 50 MP / 移动浏览器 **8–16 MP** | Safari canvas 面积限制比 Chrome 严得多 |
-
-Web 的 5000 万（PRD 现值）在 iOS Safari 上同样会失败——`九.3` 的分端差异化完全缺失。
 
 ---
 
@@ -168,7 +163,6 @@ PRD 八.4 只写了「裁剪、转换、压缩过程展示加载进度」，没�
 在 Flutter 主 isolate 里跑 400MP 级解码，UI 直接冻结数秒，进度条都动不了（进度条本身也卡死）。**必须明确**：
 
 - Windows / Android / 鸿蒙：`Isolate.run()` 或 `compute()`，解码/缩放/编码全在后台 isolate，主 isolate 只收进度回调
-- **Web 是例外且是坑**：Flutter Web 的 `compute()` 是**同步执行**的，没有真线程。50MP 解码 = 页面假死。Web 端要么降上限、要么用 Web Worker（需要自定义 glue code，成本高）
 - Isolate 之间传大图要用 `TransferableTypedData`，否则会拷贝一份（内存翻倍）
 
 这条不写进 PRD，等于把最大的性能坑留给开发自己发现。
@@ -373,8 +367,6 @@ WebP 一旦确认不能导出（硬伤 1），用户导入 WebP → 导出时格
 
 `lib/core/platform/capabilities.dart:56` 给 Windows / 鸿蒙 / Android 都配了 `ImageFormat.ico` 导出，而 PRD 十章把 ICO 导出标为 ⚠️「可行性待 #13」。现在实测 ICO 可编码，所以代码是对的、PRD 落后了——**附录 #13 结案后应把这三端的 ICO 从 ⚠️ 改为 ✅**。
 
-但 Web 端 `exportFormats: _mainstreamExport`（不含 ICO），与七.4 的「ICO 导出直接阉割」一致，没问题。
-
 ### 4.3 「262 个已适配库」是不可验证的断言
 
 PRD 七.2 写「插件引入前逐个核对官方适配清单（已收录 262 个已适配库）」。数字无来源、无时间戳，半年后必然过期。建议改为「截至 2026-11，OpenHarmony-SIG/flutter_packages 收录约 262 个已适配库（**开发时以清单实时状态为准**）」。
@@ -400,10 +392,10 @@ PRD 七.2 写「插件引入前逐个核对官方适配清单（已收录 262 �
 | # | 缺失项 | 说明 |
 |---|--------|------|
 | 8 | **性能预算表** | 现在只有「展示进度」，没有任何可测指标：导入到可见 ≤ ?s、处理 ≤ ?s、内存峰值 ≤ ?MB、安装包 ≤ ?MB、冷启动 ≤ ?s。没有预算就没法判断「100MP 上限」合不合理 |
-| 9 | **错误码与文案清单** | 九.2 只有 4 行场景，实际会产生几十种错误（解码失败/编码失败/磁盘满/只读目录/路径过长/文件被占用/权限拒绝/浏览器不支持/内存不足）。建议给错误码（E-IMG-001…）+ 中文文案 + 是否有重试 |
-| 10 | **测试策略** | 十一章只有「样本集清单」，没有：单元测试范围、golden 测试方案、真机矩阵（哪几款 Android/鸿蒙机型）、Web 浏览器矩阵（Chrome/Edge/Safari/Firefox）、SVG 光栅化怎么测 |
+| 9 | **错误码与文案清单** | 九.2 只有 4 行场景，实际会产生几十种错误（解码失败/编码失败/磁盘满/只读目录/路径过长/文件被占用/权限拒绝/内存不足）。建议给错误码（E-IMG-001…）+ 中文文案 + 是否有重试 |
+| 10 | **测试策略** | 十一章只有「样本集清单」，没有：单元测试范围、golden 测试方案、真机矩阵（哪几款 Android/鸿蒙机型）、SVG 光栅化怎么测 |
 | 11 | **快捷键与无障碍** | 桌面端工具没有 Ctrl+O / Ctrl+S / Ctrl+Z / Esc / Enter 是说不过去的。另外圆角、色彩对比度、TalkBack 支持也没提 |
-| 12 | **里程碑拆解与 DoD** | PRD 说「三端同步」但没给迭代切分。建议 M1 = Windows 全功能跑通 + 单测覆盖；M2 = Android + 真机；M3 = 鸿蒙 + 真机清单；M4 = Web |
+| 12 | **里程碑拆解与 DoD** | PRD 说「三端同步」但没给迭代切分。建议 M1 = Windows 全功能跑通 + 单测覆盖；M2 = Android + 真机；M3 = 鸿蒙 + 真机清单 |
 
 ### P2 — 上线前必须补
 

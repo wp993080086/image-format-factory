@@ -40,7 +40,7 @@ class ExportRequest {
 class ExportResult {
   const ExportResult({required this.savedPath});
 
-  /// 保存后的本地路径；Web 端（下载通道）为 null。
+  /// 保存后的本地路径。
   final String? savedPath;
 }
 

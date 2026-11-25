@@ -1,5 +1,5 @@
-// HEIF 原生解码能力入口（Windows 走 FFI 调 libheif，其余端无实现）。
+// HEIF 原生解码能力入口（Windows 走 FFI 调 libheif，Android 走系统通道）。
 //
-// 条件导出：Web 端没有 `dart:ffi`，只能拿到空实现。
-export 'heif_native_stub.dart' if (dart.library.ffi) 'heif_native_ffi.dart';
+// 直接导出 FFI 实现：Windows / Android 均支持 dart:ffi。
+export 'heif_native_ffi.dart';
 export 'heif_native_types.dart';

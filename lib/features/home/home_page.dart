@@ -176,7 +176,6 @@ class _ImportCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final hints = <String>[
       if (caps.dragDropImport) '支持拖拽导入',
-      if (caps.pasteImport) '支持粘贴导入',
     ];
     final imported = state.imported;
     final decoded = state.decoded;

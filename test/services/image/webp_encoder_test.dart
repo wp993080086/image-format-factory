@@ -80,7 +80,6 @@ void main() {
 
     for (final target in [
       AppTarget.harmony,
-      AppTarget.web,
       AppTarget.wechatMini,
     ]) {
       final r = await WebpEncoder.encode(

@@ -1,5 +1,5 @@
 name: image_format_factory
-description: "图片格式工厂 - 纯本地离线图片编辑工具（Windows / HarmonyOS Next / Android / Web）"
+description: "图片格式工厂 - 纯本地离线图片编辑工具（Windows / HarmonyOS Next / Android）"
 publish_to: 'none'
 
 version: 0.1.0+1
@@ -21,7 +21,7 @@ dependencies:
   go_router: ^18.1.2
   # 图像编解码 / 重采样 / 压缩（纯 Dart，鸿蒙适配面最小化，见 PRD 七.2 架构铁律）
   image: ^4.12.0
-  # 文件选择（官方多端插件：Windows / Android / Web）
+  # 文件选择（官方多端插件：Windows / Android）
   file_selector: ^1.1.0
   # 路径（导出临时目录等）
   path_provider: ^2.1.6

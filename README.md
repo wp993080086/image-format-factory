@@ -6,9 +6,9 @@
 
 ## 端与优先级
 
-Windows（首发基线）→ Android → HarmonyOS Next（M4）→ Web（M5）→ 微信小程序（独立代码库，V3+）
+Windows（首发基线）→ Android → HarmonyOS Next（M4）→ 微信小程序（独立代码库，V3+）
 
-以 PRD 第十五章里程碑为准：当前 M3 只做 Windows + Android 双端；鸿蒙顺延 M4、Web 顺延 M5。
+以 PRD 第十五章里程碑为准：当前 M3 只做 Windows + Android 双端；鸿蒙顺延 M4。
 注意 PRD 头部「鸿蒙优先于 Android / MVP 三端同步」是 v0.1 遗留声明，以 v0.5 修订记录与第十五章为准。
 
 ## 版本策略
@@ -38,7 +38,7 @@ lib/
 ├── services/
 │   ├── batch/            # 批量处理流水线（编排 core 各步骤）
 │   ├── file/             # 导入导出服务（file_selector 薄层 + 平台条件导入）
-│   └── image/            # 原生编解码适配（AVIF / HEIF / WebP，各有 native/ffi/stub 分层）
+│   └── image/            # 原生编解码适配（AVIF / HEIF / WebP，各有 native/ffi 分层）
 └── main.dart
 ```
 

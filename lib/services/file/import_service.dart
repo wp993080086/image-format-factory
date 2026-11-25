@@ -50,7 +50,7 @@ class ImportService {
   /// 打开系统文件选择器并读取图片字节。
   ///
   /// 用户取消时返回 null。
-  /// TODO: Android/鸿蒙走系统文件选择器、Web 增加粘贴导入、
+  /// TODO: Android/鸿蒙走系统文件选择器、
   /// 小程序改相册选择——当前统一走 file_selector。
   Future<ImportResult?> pickImage() async {
     final file = await openFile(acceptedTypeGroups: [importTypeGroup()]);

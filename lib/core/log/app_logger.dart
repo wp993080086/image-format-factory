@@ -55,7 +55,7 @@ class AppLogger {
 
   /// 开始一次会话：生成日志文件名，并清掉超出保留份数的旧日志。
   ///
-  /// [persist] 为 false 时只留内存缓冲（测试环境与 Web 端）。
+  /// [persist] 为 false 时只留内存缓冲（测试环境）。
   /// 同步部分（文件名、持久化开关）在首个 await 之前完成，
   /// 因此调用方可以直接 `unawaited(AppLogger.startSession())`。
   static Future<void> startSession({
