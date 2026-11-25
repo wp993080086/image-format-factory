@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pixel_forge/core/log/log_ring_buffer.dart';
+import 'package:image_format_factory/core/log/log_ring_buffer.dart';
 
 void main() {
   group('LogRingBuffer 容量控制', () {

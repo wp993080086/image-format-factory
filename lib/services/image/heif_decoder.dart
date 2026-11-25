@@ -46,7 +46,7 @@ class HeifDecodeResult {
 class HeifDecoder {
   HeifDecoder._();
 
-  static const channelName = 'pixel_forge/heif';
+  static const channelName = 'imageformatfactory/heif';
 
   static const _channel = MethodChannel(channelName);
 

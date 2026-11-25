@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
-import 'package:pixel_forge/core/image/ico_packer.dart';
+import 'package:image_format_factory/core/image/ico_packer.dart';
 
 /// 纯色 RGBA 源图。
 img.Image _rgba(

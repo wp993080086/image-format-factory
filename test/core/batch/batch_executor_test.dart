@@ -2,9 +2,9 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:pixel_forge/core/batch/batch_executor.dart';
-import 'package:pixel_forge/core/batch/batch_models.dart';
-import 'package:pixel_forge/core/image/image_format.dart';
+import 'package:image_format_factory/core/batch/batch_executor.dart';
+import 'package:image_format_factory/core/batch/batch_models.dart';
+import 'package:image_format_factory/core/image/image_format.dart';
 
 List<BatchItem> _items(int n) => List.generate(
       n,

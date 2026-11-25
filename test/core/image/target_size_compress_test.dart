@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:pixel_forge/core/image/target_size_compress.dart';
+import 'package:image_format_factory/core/image/target_size_compress.dart';
 
 /// 模拟有损编码：体积随质量单调增（每质量 100 字节）。
 Future<List<int>> _encoder(int quality) async => List<int>.filled(quality * 100, 1);

@@ -265,7 +265,7 @@ class _ConfigCard extends StatelessWidget {
               onChanged: (on) => notifier.updateConfig(
                 config.copyWith(
                   watermark: on
-                      ? const TextWatermark(text: 'PIXEL FORGE')
+                      ? const TextWatermark(text: '图片格式工厂')
                       : null,
                 ),
               ),

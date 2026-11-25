@@ -2,11 +2,11 @@ import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pixel_forge/core/image/image_format.dart';
-import 'package:pixel_forge/core/platform/app_platform.dart';
-import 'package:pixel_forge/core/platform/capabilities.dart';
-import 'package:pixel_forge/features/batch/batch_controller.dart';
-import 'package:pixel_forge/services/file/import_service.dart';
+import 'package:image_format_factory/core/image/image_format.dart';
+import 'package:image_format_factory/core/platform/app_platform.dart';
+import 'package:image_format_factory/core/platform/capabilities.dart';
+import 'package:image_format_factory/features/batch/batch_controller.dart';
+import 'package:image_format_factory/services/file/import_service.dart';
 
 /// 按预定批次返回选图结果的替身，避免测试依赖系统文件选择器。
 class _ScriptedImportService extends ImportService {

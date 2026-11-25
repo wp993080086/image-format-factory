@@ -1,8 +1,8 @@
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pixel_forge/core/image/format_detector.dart';
-import 'package:pixel_forge/core/image/image_format.dart';
+import 'package:image_format_factory/core/image/format_detector.dart';
+import 'package:image_format_factory/core/image/image_format.dart';
 
 /// 构造带 PNG 签名的字节流。
 Uint8List _pngBytes({List<int> chunks = const []}) {

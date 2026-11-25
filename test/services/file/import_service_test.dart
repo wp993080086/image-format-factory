@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pixel_forge/core/image/image_format.dart';
-import 'package:pixel_forge/core/platform/app_platform.dart';
-import 'package:pixel_forge/core/platform/capabilities.dart';
-import 'package:pixel_forge/services/file/import_service.dart';
+import 'package:image_format_factory/core/image/image_format.dart';
+import 'package:image_format_factory/core/platform/app_platform.dart';
+import 'package:image_format_factory/core/platform/capabilities.dart';
+import 'package:image_format_factory/services/file/import_service.dart';
 
 void main() {
   test('选择器同时给出扩展名与 MIME（Android 只认 MIME）', () {

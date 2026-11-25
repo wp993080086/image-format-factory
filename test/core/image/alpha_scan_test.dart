@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
-import 'package:pixel_forge/core/image/alpha_scan.dart';
+import 'package:image_format_factory/core/image/alpha_scan.dart';
 
 img.Image _rgba(int width, int height, int alpha) {
   final image = img.Image(width: width, height: height, numChannels: 4);

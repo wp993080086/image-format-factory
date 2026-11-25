@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 
-import 'package:pixel_forge/core/image/watermark.dart';
+import 'package:image_format_factory/core/image/watermark.dart';
 
 img.Image _black() {
   final image = img.Image(width: 120, height: 80, numChannels: 4);

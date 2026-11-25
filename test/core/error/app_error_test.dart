@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pixel_forge/core/error/app_error.dart';
+import 'package:image_format_factory/core/error/app_error.dart';
 
 void main() {
   group('AppErrorCode', () {

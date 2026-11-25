@@ -5,7 +5,7 @@
 /// 手动保持一致**，此项在 S8 一致性检查中核对。
 library;
 
-const String appName = '像素工坊';
+const String appName = '图片格式工厂';
 
 const String appVersion = '0.1.0';
 

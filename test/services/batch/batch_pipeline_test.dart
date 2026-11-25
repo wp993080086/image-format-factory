@@ -3,13 +3,13 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 
-import 'package:pixel_forge/core/batch/batch_executor.dart';
-import 'package:pixel_forge/core/batch/batch_models.dart';
-import 'package:pixel_forge/core/image/encode_service.dart';
-import 'package:pixel_forge/core/image/image_format.dart';
-import 'package:pixel_forge/core/platform/app_platform.dart';
-import 'package:pixel_forge/services/batch/batch_pipeline.dart';
-import 'package:pixel_forge/services/file/export_service.dart';
+import 'package:image_format_factory/core/batch/batch_executor.dart';
+import 'package:image_format_factory/core/batch/batch_models.dart';
+import 'package:image_format_factory/core/image/encode_service.dart';
+import 'package:image_format_factory/core/image/image_format.dart';
+import 'package:image_format_factory/core/platform/app_platform.dart';
+import 'package:image_format_factory/services/batch/batch_pipeline.dart';
+import 'package:image_format_factory/services/file/export_service.dart';
 
 /// 记录批量保存调用的替身：目录通道与逐张通道分开计数。
 class _FakeExportService extends ExportService {

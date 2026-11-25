@@ -3,9 +3,9 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 
-import 'package:pixel_forge/core/image/encode_service.dart';
-import 'package:pixel_forge/core/image/format_encoders.dart';
-import 'package:pixel_forge/core/image/image_format.dart';
+import 'package:image_format_factory/core/image/encode_service.dart';
+import 'package:image_format_factory/core/image/format_encoders.dart';
+import 'package:image_format_factory/core/image/image_format.dart';
 
 /// 造一张有明确颜色分布的图，便于 round-trip 后比对像素。
 Uint8List _png({int w = 24, int h = 16}) {

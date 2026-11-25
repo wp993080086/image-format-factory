@@ -2,20 +2,20 @@ import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pixel_forge/core/di/providers.dart';
-import 'package:pixel_forge/core/error/app_error.dart';
-import 'package:pixel_forge/core/image/crop_selection.dart';
-import 'package:pixel_forge/core/image/decode_service.dart';
-import 'package:pixel_forge/core/image/encode_service.dart';
-import 'package:pixel_forge/core/image/image_format.dart';
-import 'package:pixel_forge/core/image/image_header_probe.dart';
-import 'package:pixel_forge/core/image/resize_geometry.dart';
-import 'package:pixel_forge/core/platform/app_platform.dart';
-import 'package:pixel_forge/core/platform/capabilities.dart';
-import 'package:pixel_forge/features/editor/editor_controller.dart';
-import 'package:pixel_forge/features/editor/editor_state.dart';
-import 'package:pixel_forge/services/file/export_service.dart';
-import 'package:pixel_forge/services/file/import_service.dart';
+import 'package:image_format_factory/core/di/providers.dart';
+import 'package:image_format_factory/core/error/app_error.dart';
+import 'package:image_format_factory/core/image/crop_selection.dart';
+import 'package:image_format_factory/core/image/decode_service.dart';
+import 'package:image_format_factory/core/image/encode_service.dart';
+import 'package:image_format_factory/core/image/image_format.dart';
+import 'package:image_format_factory/core/image/image_header_probe.dart';
+import 'package:image_format_factory/core/image/resize_geometry.dart';
+import 'package:image_format_factory/core/platform/app_platform.dart';
+import 'package:image_format_factory/core/platform/capabilities.dart';
+import 'package:image_format_factory/features/editor/editor_controller.dart';
+import 'package:image_format_factory/features/editor/editor_state.dart';
+import 'package:image_format_factory/services/file/export_service.dart';
+import 'package:image_format_factory/services/file/import_service.dart';
 
 /// 可编排返回值的导入服务替身。
 class _FakeImportService extends ImportService {

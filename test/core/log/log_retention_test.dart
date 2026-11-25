@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pixel_forge/core/log/log_retention.dart';
+import 'package:image_format_factory/core/log/log_retention.dart';
 
 void main() {
   group('会话日志命名', () {

@@ -1,7 +1,7 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pixel_forge/core/platform/app_platform.dart';
-import 'package:pixel_forge/services/image/heif_decoder.dart';
+import 'package:image_format_factory/core/platform/app_platform.dart';
+import 'package:image_format_factory/services/image/heif_decoder.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

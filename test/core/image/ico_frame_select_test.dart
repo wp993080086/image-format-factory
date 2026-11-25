@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
-import 'package:pixel_forge/core/image/ico_frame_select.dart';
-import 'package:pixel_forge/core/image/ico_packer.dart';
+import 'package:image_format_factory/core/image/ico_frame_select.dart';
+import 'package:image_format_factory/core/image/ico_packer.dart';
 
 /// 构造多帧图：首个尺寸为主图，其余挂为 frames（模拟 ICO 目录顺序）。
 img.Image _withFrames(List<int> sizes) {

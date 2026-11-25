@@ -11,5 +11,5 @@ void main() {
   // 开启会话日志：生成会话文件、清理过期日志。
   // 不 await——日志是旁路，绝不能让落盘拖慢首帧。
   unawaited(AppLogger.startSession());
-  runApp(const ProviderScope(child: PixelForgeApp()));
+  runApp(const ProviderScope(child: ImageFormatFactoryApp()));
 }

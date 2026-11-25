@@ -40,7 +40,7 @@ class WebpEncodeResult {
 class WebpEncoder {
   WebpEncoder._();
 
-  static const channelName = 'pixel_forge/webp';
+  static const channelName = 'imageformatfactory/webp';
 
   /// 把 RGBA 像素编码为 WebP。
   ///

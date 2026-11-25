@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
-import 'package:pixel_forge/core/image/resize_apply.dart';
-import 'package:pixel_forge/core/image/resize_geometry.dart';
+import 'package:image_format_factory/core/image/resize_apply.dart';
+import 'package:image_format_factory/core/image/resize_geometry.dart';
 
 /// 纯色图，4 通道。
 img.Image _solid(int width, int height, img.Color color) {

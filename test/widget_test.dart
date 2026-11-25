@@ -4,21 +4,21 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pixel_forge/app/app.dart';
-import 'package:pixel_forge/app/app_info.dart';
-import 'package:pixel_forge/core/di/providers.dart';
-import 'package:pixel_forge/core/error/app_error.dart';
-import 'package:pixel_forge/core/image/annotation.dart';
-import 'package:pixel_forge/core/image/cjk_text.dart';
-import 'package:pixel_forge/core/image/decode_service.dart';
-import 'package:pixel_forge/core/image/encode_service.dart';
-import 'package:pixel_forge/core/image/image_format.dart';
-import 'package:pixel_forge/core/image/image_header_probe.dart';
-import 'package:pixel_forge/core/platform/app_platform.dart';
-import 'package:pixel_forge/core/platform/capabilities.dart';
-import 'package:pixel_forge/features/editor/editor_controller.dart';
-import 'package:pixel_forge/services/file/export_service.dart';
-import 'package:pixel_forge/services/file/import_service.dart';
+import 'package:image_format_factory/app/app.dart';
+import 'package:image_format_factory/app/app_info.dart';
+import 'package:image_format_factory/core/di/providers.dart';
+import 'package:image_format_factory/core/error/app_error.dart';
+import 'package:image_format_factory/core/image/annotation.dart';
+import 'package:image_format_factory/core/image/cjk_text.dart';
+import 'package:image_format_factory/core/image/decode_service.dart';
+import 'package:image_format_factory/core/image/encode_service.dart';
+import 'package:image_format_factory/core/image/image_format.dart';
+import 'package:image_format_factory/core/image/image_header_probe.dart';
+import 'package:image_format_factory/core/platform/app_platform.dart';
+import 'package:image_format_factory/core/platform/capabilities.dart';
+import 'package:image_format_factory/features/editor/editor_controller.dart';
+import 'package:image_format_factory/services/file/export_service.dart';
+import 'package:image_format_factory/services/file/import_service.dart';
 
 /// 导入/解码替身：返回一张 4×4 的假图，避免测试依赖真实文件选择器与解码。
 class _FakeImportService extends ImportService {
@@ -153,7 +153,7 @@ Future<void> _bootHome(
         if (encodeService != null)
           encodeServiceProvider.overrideWithValue(encodeService),
       ],
-      child: const PixelForgeApp(),
+      child: const ImageFormatFactoryApp(),
     ),
   );
   await tester.pumpAndSettle();
@@ -169,7 +169,7 @@ void main() {
   testWidgets('首页渲染：标题与功能入口可见', (tester) async {
     await _bootHome(tester);
 
-    expect(find.text('像素工坊'), findsOneWidget);
+    expect(find.text('图片格式工厂'), findsOneWidget);
     expect(find.text('裁剪'), findsOneWidget);
     expect(find.text('尺寸与比例'), findsOneWidget);
     expect(find.text('格式转换'), findsOneWidget);
@@ -466,7 +466,7 @@ void main() {
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pumpAndSettle();
 
-    expect(find.text('像素工坊'), findsOneWidget);
+    expect(find.text('图片格式工厂'), findsOneWidget);
     expect(find.text('输出格式'), findsNothing);
   });
 
@@ -552,7 +552,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(export.savedNames.length, 1);
-    expect(export.savedNames.single, startsWith('pixel-forge-log-'));
+    expect(export.savedNames.single, startsWith('imageformatfactory-log-'));
     expect(export.savedNames.single, endsWith('.txt'));
     expect(export.savedContent, contains('当前会话'));
     expect(find.textContaining('诊断日志已保存'), findsOneWidget);

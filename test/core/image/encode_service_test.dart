@@ -3,11 +3,11 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
-import 'package:pixel_forge/core/image/crop_selection.dart';
-import 'package:pixel_forge/core/image/encode_service.dart';
-import 'package:pixel_forge/core/image/ico_packer.dart';
-import 'package:pixel_forge/core/image/image_format.dart';
-import 'package:pixel_forge/core/image/resize_geometry.dart';
+import 'package:image_format_factory/core/image/crop_selection.dart';
+import 'package:image_format_factory/core/image/encode_service.dart';
+import 'package:image_format_factory/core/image/ico_packer.dart';
+import 'package:image_format_factory/core/image/image_format.dart';
+import 'package:image_format_factory/core/image/resize_geometry.dart';
 
 /// 渐变图：重复度高，deflate 的压缩级别差异能体现出来。
 Uint8List _gradientPng({int size = 128}) {

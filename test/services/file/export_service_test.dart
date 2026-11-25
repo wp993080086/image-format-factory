@@ -1,8 +1,8 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pixel_forge/core/image/image_format.dart';
-import 'package:pixel_forge/core/platform/app_platform.dart';
-import 'package:pixel_forge/services/file/export_service.dart';
+import 'package:image_format_factory/core/image/image_format.dart';
+import 'package:image_format_factory/core/platform/app_platform.dart';
+import 'package:image_format_factory/services/file/export_service.dart';
 
 /// `flutter_file_dialog` 的方法通道名（插件里写死的常量）。
 const MethodChannel _safChannel = MethodChannel('flutter_file_dialog');
@@ -187,7 +187,7 @@ void main() {
       const service = ExportService(target: AppTarget.android);
 
       await service.saveAs(
-        suggestedName: 'pixel-forge-log-1.txt',
+        suggestedName: 'imageformatfactory-log-1.txt',
         bytes: bytes,
         extensions: const ['txt'],
         label: '文本文件',

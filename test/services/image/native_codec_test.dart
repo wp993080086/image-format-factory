@@ -4,9 +4,9 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
-import 'package:pixel_forge/core/platform/app_platform.dart';
-import 'package:pixel_forge/services/image/heif_decoder.dart';
-import 'package:pixel_forge/services/image/webp_encoder.dart';
+import 'package:image_format_factory/core/platform/app_platform.dart';
+import 'package:image_format_factory/services/image/heif_decoder.dart';
+import 'package:image_format_factory/services/image/webp_encoder.dart';
 
 /// 随包分发的原生库（libwebp / libheif）的真实调用验证。
 ///

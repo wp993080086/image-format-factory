@@ -31,14 +31,14 @@ class _AboutPageState extends ConsumerState<AboutPage> {
       '$appName $appVersionLabel\n'
       '运行平台：${AppPlatform.current.displayName}';
 
-  /// `pixel-forge-log-20261111-101500.txt`
+  /// `imageformatfactory-log-20261111-101500.txt`
   String get _diagnosticFileName {
     final now = DateTime.now();
     String two(int v) => v.toString().padLeft(2, '0');
     final stamp =
         '${now.year}${two(now.month)}${two(now.day)}'
         '-${two(now.hour)}${two(now.minute)}${two(now.second)}';
-    return 'pixel-forge-log-$stamp.txt';
+    return 'imageformatfactory-log-$stamp.txt';
   }
 
   Future<void> _exportDiagnostics() async {

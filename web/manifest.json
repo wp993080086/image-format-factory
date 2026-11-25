@@ -1,6 +1,6 @@
 {
-    "name": "像素工坊",
-    "short_name": "像素工坊",
+    "name": "图片格式工厂",
+    "short_name": "图片格式工厂",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

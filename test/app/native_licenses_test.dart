@@ -1,6 +1,6 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pixel_forge/app/native_licenses.dart';
+import 'package:image_format_factory/app/native_licenses.dart';
 
 /// 随包分发的原生库必须满足 LGPL-3.0 / BSD-3 的分发要求：
 /// 声明完整、许可全文随包、版本与实际构建一致。

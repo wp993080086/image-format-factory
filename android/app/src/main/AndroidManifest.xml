@@ -1,6 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application
-        android:label="像素工坊"
+        android:label="图片格式工厂"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

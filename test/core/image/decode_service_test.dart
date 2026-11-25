@@ -2,8 +2,8 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
-import 'package:pixel_forge/core/image/decode_service.dart';
-import 'package:pixel_forge/core/image/ico_packer.dart';
+import 'package:image_format_factory/core/image/decode_service.dart';
+import 'package:image_format_factory/core/image/ico_packer.dart';
 
 /// 生成指定尺寸的真实 PNG 字节。
 Uint8List _png(int w, int h) {

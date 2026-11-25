@@ -3,9 +3,9 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
-import 'package:pixel_forge/core/platform/app_platform.dart';
-import 'package:pixel_forge/services/image/avif_cli.dart';
-import 'package:pixel_forge/services/image/avif_codec.dart';
+import 'package:image_format_factory/core/platform/app_platform.dart';
+import 'package:image_format_factory/services/image/avif_cli.dart';
+import 'package:image_format_factory/services/image/avif_codec.dart';
 
 /// AVIF 随包 CLI 的真实编解码验证（仅 Windows）。
 ///

@@ -1,4 +1,4 @@
-package com.pixelforge.pixel_forge
+package com.wp.imageformatfactory
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -16,12 +16,12 @@ import java.util.concurrent.Executors
  * 平台原生图像能力通道。
  *
  * 两条通道：
- * - `pixel_forge/heif`：HEIF（苹果 HEIC / 华为 HEIF）解码。
+ * - `imageformatfactory/heif`：HEIF（苹果 HEIC / 华为 HEIF）解码。
  *   纯 Dart 没有 HEVC 解码器；Android 8.0 起系统自带静态图解码，
  *   这里把 HEIC 字节解成 PNG 字节回给 Dart，后续处理走既有管线。
- * - `pixel_forge/webp`：WebP 编码。
+ * - `imageformatfactory/webp`：WebP 编码。
  *   `image` 包只有 webp 解码器；系统自带 WebP 编码器，零新增依赖。
- * - `pixel_forge/avif`：AVIF 解码。
+ * - `imageformatfactory/avif`：AVIF 解码。
  *   系统 ImageDecoder 从 Android 12（API 31）起支持 AVIF 静态图；
  *   编码系统无 API，一律返回 unsupported，由 Dart 侧隐藏导出能力位。
  *
@@ -29,9 +29,9 @@ import java.util.concurrent.Executors
  * 甚至触发 ANR。结果统一回主线程回调（MethodChannel 要求）。
  */
 class MainActivity : FlutterActivity() {
-    private val heifChannelName = "pixel_forge/heif"
-    private val webpChannelName = "pixel_forge/webp"
-    private val avifChannelName = "pixel_forge/avif"
+    private val heifChannelName = "imageformatfactory/heif"
+    private val webpChannelName = "imageformatfactory/webp"
+    private val avifChannelName = "imageformatfactory/avif"
 
     private val worker = Executors.newSingleThreadExecutor()
     private val mainHandler = Handler(Looper.getMainLooper())

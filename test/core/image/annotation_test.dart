@@ -1,10 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 
-import 'package:pixel_forge/core/image/annotation.dart';
-import 'package:pixel_forge/core/image/cjk_text.dart';
-import 'package:pixel_forge/core/image/resize_apply.dart';
-import 'package:pixel_forge/core/image/resize_geometry.dart';
+import 'package:image_format_factory/core/image/annotation.dart';
+import 'package:image_format_factory/core/image/cjk_text.dart';
+import 'package:image_format_factory/core/image/resize_apply.dart';
+import 'package:image_format_factory/core/image/resize_geometry.dart';
 
 img.Image _canvas() {
   final image = img.Image(width: 100, height: 100, numChannels: 4);

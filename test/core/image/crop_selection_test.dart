@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pixel_forge/core/image/crop_selection.dart';
-import 'package:pixel_forge/core/image/image_header_probe.dart';
+import 'package:image_format_factory/core/image/crop_selection.dart';
+import 'package:image_format_factory/core/image/image_header_probe.dart';
 
 void main() {
   const size = ImageDimensions(1000, 800);

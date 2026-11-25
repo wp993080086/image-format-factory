@@ -22,7 +22,7 @@
 [CmdletBinding()]
 param(
     [string]$OutputDir = "$PSScriptRoot\..\windows\native\bin\x64",
-    [string]$WorkDir = "$env:TEMP\pixel-forge-native"
+    [string]$WorkDir = "$env:TEMP\imageformatfactory-native"
 )
 
 $ErrorActionPreference = 'Stop'

@@ -2,9 +2,9 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pixel_forge/core/error/app_error.dart';
-import 'package:pixel_forge/core/error/export_error_mapper.dart';
-import 'package:pixel_forge/core/platform/app_platform.dart';
+import 'package:image_format_factory/core/error/app_error.dart';
+import 'package:image_format_factory/core/error/export_error_mapper.dart';
+import 'package:image_format_factory/core/platform/app_platform.dart';
 
 /// 构造一个带 OS 错误码的写盘异常，模拟 `File.writeAsBytes` 的失败。
 FileSystemException _fs(int code) =>

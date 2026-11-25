@@ -57,7 +57,7 @@ class AvifDecodeResult {
 class AvifCodec {
   AvifCodec._();
 
-  static const channelName = 'pixel_forge/avif';
+  static const channelName = 'imageformatfactory/avif';
 
   /// 指定端是否具备 AVIF 能力（编码 Windows 可，Android 仅解码）。
   static bool isSupportedFor(AppTarget target) =>

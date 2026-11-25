@@ -67,7 +67,7 @@ class _HomePageState extends ConsumerState<HomePage> {
 
     final content = Scaffold(
       appBar: AppBar(
-        title: const Text('像素工坊'),
+        title: const Text('图片格式工厂'),
         actions: [
           IconButton(
             tooltip: '关于',

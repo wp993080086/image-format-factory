@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 
-import 'package:pixel_forge/core/image/color_adjust.dart';
+import 'package:image_format_factory/core/image/color_adjust.dart';
 
 img.Image _solid(int r, int g, int b) {
   final image = img.Image(width: 16, height: 16, numChannels: 4);

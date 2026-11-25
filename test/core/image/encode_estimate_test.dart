@@ -3,10 +3,10 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
-import 'package:pixel_forge/core/image/encode_service.dart';
-import 'package:pixel_forge/core/image/image_format.dart';
-import 'package:pixel_forge/core/image/image_header_probe.dart';
-import 'package:pixel_forge/core/image/resize_geometry.dart';
+import 'package:image_format_factory/core/image/encode_service.dart';
+import 'package:image_format_factory/core/image/image_format.dart';
+import 'package:image_format_factory/core/image/image_header_probe.dart';
+import 'package:image_format_factory/core/image/resize_geometry.dart';
 
 /// 伪随机噪声图：压缩率接近 1，便于检验外推倍数是否准确。
 Uint8List _noisePng(int size) {

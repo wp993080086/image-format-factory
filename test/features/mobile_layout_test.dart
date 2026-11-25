@@ -3,16 +3,16 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pixel_forge/app/app.dart';
-import 'package:pixel_forge/core/di/providers.dart';
-import 'package:pixel_forge/core/image/decode_service.dart';
-import 'package:pixel_forge/core/image/encode_service.dart';
-import 'package:pixel_forge/core/image/image_format.dart';
-import 'package:pixel_forge/core/image/image_header_probe.dart';
-import 'package:pixel_forge/core/platform/app_platform.dart';
-import 'package:pixel_forge/core/platform/capabilities.dart';
-import 'package:pixel_forge/services/file/export_service.dart';
-import 'package:pixel_forge/services/file/import_service.dart';
+import 'package:image_format_factory/app/app.dart';
+import 'package:image_format_factory/core/di/providers.dart';
+import 'package:image_format_factory/core/image/decode_service.dart';
+import 'package:image_format_factory/core/image/encode_service.dart';
+import 'package:image_format_factory/core/image/image_format.dart';
+import 'package:image_format_factory/core/image/image_header_probe.dart';
+import 'package:image_format_factory/core/platform/app_platform.dart';
+import 'package:image_format_factory/core/platform/capabilities.dart';
+import 'package:image_format_factory/services/file/export_service.dart';
+import 'package:image_format_factory/services/file/import_service.dart';
 
 /// 移动端布局守卫（PRD 七.1 / 十）。
 ///
@@ -99,7 +99,7 @@ Future<void> _boot(
           ({String header = ''}) async => '$header\n（测试会话）',
         ),
       ],
-      child: const PixelForgeApp(),
+      child: const ImageFormatFactoryApp(),
     ),
   );
   await tester.pumpAndSettle();

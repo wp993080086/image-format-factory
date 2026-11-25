@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pixel_forge/core/image/image_header_probe.dart';
-import 'package:pixel_forge/core/image/resize_geometry.dart';
+import 'package:image_format_factory/core/image/image_header_probe.dart';
+import 'package:image_format_factory/core/image/resize_geometry.dart';
 
 void main() {
   const source = ImageDimensions(800, 600);

@@ -1,9 +1,9 @@
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pixel_forge/core/image/decode_policy.dart';
-import 'package:pixel_forge/core/image/image_format.dart';
-import 'package:pixel_forge/core/image/image_header_probe.dart';
+import 'package:image_format_factory/core/image/decode_policy.dart';
+import 'package:image_format_factory/core/image/image_format.dart';
+import 'package:image_format_factory/core/image/image_header_probe.dart';
 
 /// 构造 PNG 头：签名 + IHDR 长度/类型 + 宽高。
 Uint8List _png(int w, int h) {

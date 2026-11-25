@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 
-import 'package:pixel_forge/core/image/blur.dart';
+import 'package:image_format_factory/core/image/blur.dart';
 
 img.Image _splitCanvas() {
   final image = img.Image(width: 100, height: 100, numChannels: 3);

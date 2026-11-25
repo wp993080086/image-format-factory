@@ -7,15 +7,15 @@ import 'router.dart';
 import 'shortcuts.dart';
 import 'theme.dart';
 
-/// 像素工坊应用根组件。
-class PixelForgeApp extends ConsumerWidget {
-  const PixelForgeApp({super.key});
+/// 图片格式工厂应用根组件。
+class ImageFormatFactoryApp extends ConsumerWidget {
+  const ImageFormatFactoryApp({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final router = ref.watch(routerProvider);
     return MaterialApp.router(
-      title: '像素工坊',
+      title: '图片格式工厂',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light(),
       localizationsDelegates: GlobalMaterialLocalizations.delegates,

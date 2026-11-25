@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
-import 'package:pixel_forge/core/image/crop_apply.dart';
-import 'package:pixel_forge/core/image/crop_selection.dart';
+import 'package:image_format_factory/core/image/crop_apply.dart';
+import 'package:image_format_factory/core/image/crop_selection.dart';
 
 /// 造一张黑底 + (10,10)-(29,29) 红块的四通道图。
 img.Image _marker({int width = 100, int height = 80}) {

@@ -38,7 +38,7 @@ class AppLogger {
   AppLogger._();
 
   /// 统一日志名（DevTools 里按此过滤）。
-  static const String _defaultName = 'pixel_forge';
+  static const String _defaultName = 'image_format_factory';
 
   /// 会话缓冲：即使未落盘也要留存，供「导出诊断日志」使用。
   static final LogRingBuffer _buffer = LogRingBuffer();
