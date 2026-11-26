@@ -79,7 +79,8 @@ class EditorController extends Notifier<EditorState> {
     }
     // 能力矩阵之外的格式一律拒绝：拖拽导入可绕过选择器的扩展名过滤。
     // 典型的是 SVG——文件头能探测出来，但当前没有光栅化能力（ADR-004 的
-    // flutter_svg 方案尚未接入）；TIFF/TGA/PPM 则按附录 #8 移出 MVP。
+    // flutter_svg 方案尚未接入）；TGA/PPM 则仍按附录 #8 留在 MVP 之外，
+    // TIFF 已在 v0.5 拉回（Android/Windows 双向可用）。
     // 报「不支持该格式」而不是「文件已损坏」，否则用户会以为自己的图坏了。
     if (!ref.read(capabilitiesProvider).canImport(format)) {
       _fail(AppErrorCode.unsupportedFormat);
@@ -137,9 +138,7 @@ class EditorController extends Notifier<EditorState> {
     // 解码 + 生成预览图（PRD 九.3）：在子 Isolate 执行，UI 不阻塞。
     // HEIF 已在上面转成 PNG，这里拿到的已是通用格式字节。
     state = state.copyWith(stage: EditorStage.decoding);
-    final decoded = await ref
-        .read(decodeServiceProvider)
-        .decodePreview(bytes);
+    final decoded = await ref.read(decodeServiceProvider).decodePreview(bytes);
     if (decoded == null) {
       // 头部可识别但解码失败 → 文件损坏
       _fail(AppErrorCode.corruptedFile);
@@ -178,13 +177,19 @@ class EditorController extends Notifier<EditorState> {
     _redoStack.clear();
   }
 
+  /// 写入前把标注坐标钳制到原图内，避免标注伸出图片外。
+  Annotation _bounded(Annotation a) {
+    final size = state.decoded?.sourceSize;
+    return size == null ? a : a.clampToBounds(size.width, size.height);
+  }
+
   /// 新增一条标注（一次拖拽结束提交一次）。
   void addAnnotation(Annotation a) {
     if (!state.canEdit) return;
     _pushHistory();
     final index = state.annotations.length;
     state = state.copyWith(
-      annotations: [...state.annotations, a],
+      annotations: [...state.annotations, _bounded(a)],
       selectedAnnotation: index,
     );
   }
@@ -205,28 +210,29 @@ class EditorController extends Notifier<EditorState> {
 
   /// 替换指定索引的标注（手柄调整提交）。
   void updateAnnotation(int index, Annotation a) {
-    if (!state.canEdit || index < 0 || index >= state.annotations.length) return;
+    if (!state.canEdit || index < 0 || index >= state.annotations.length) {
+      return;
+    }
     if (!_inAnnotationGesture) _pushHistory();
-    final next = List<Annotation>.from(state.annotations)..[index] = a;
+    final next = List<Annotation>.from(state.annotations)
+      ..[index] = _bounded(a);
     state = state.copyWith(annotations: next);
   }
 
   /// 删除指定标注。
   void removeAnnotation(int index) {
-    if (!state.canEdit || index < 0 || index >= state.annotations.length) return;
+    if (!state.canEdit || index < 0 || index >= state.annotations.length) {
+      return;
+    }
     _pushHistory();
     final next = List<Annotation>.from(state.annotations)..removeAt(index);
-    state = state.copyWith(
-      annotations: next,
-      clearSelected: true,
-    );
+    state = state.copyWith(annotations: next, clearSelected: true);
   }
 
-  void selectAnnotation(int? index) =>
-      state = state.copyWith(
-        selectedAnnotation: index,
-        clearSelected: index == null,
-      );
+  void selectAnnotation(int? index) => state = state.copyWith(
+    selectedAnnotation: index,
+    clearSelected: index == null,
+  );
 
   void clearAnnotations() {
     if (state.annotations.isEmpty) return;

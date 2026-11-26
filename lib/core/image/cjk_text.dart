@@ -1,4 +1,5 @@
 import 'dart:collection';
+import 'dart:math' as math;
 
 import 'package:image/image.dart' as img;
 
@@ -15,8 +16,14 @@ import 'fonts/cjk_24.dart';
 class CjkText {
   CjkText._();
 
-  /// 按字号缓存的字体实例（key 为字号）。
+  /// 字号上限：允许文字随高分辨率原图放大到接近图片宽度。
+  /// 字形放大只在导出时发生，度量走线性换算，不生成大字形。
+  static const int maxFontSize = 2048;
+
+  /// 按字号缓存的字体实例（key 为字号），只缓存常规字号。
+  /// 大字号若逐帧缓存会在拖动过程中堆积大量位图，因此用完即弃。
   static final Map<int, img.BitmapFont> _cache = HashMap();
+  static const int _cacheMaxFontSize = 200;
 
   /// 返回可用于 `img.drawString` 的字体：字号等于 24 时直接返回基准字体，
   /// 否则构造一份只含所需字形缩放版的字体。
@@ -25,10 +32,12 @@ class CjkText {
   /// 遇到尚未缓存的字形时按需往里补充（[_coversAll] 判断覆盖）。
   /// 字库总量有限，累积不会无限增长。
   static img.BitmapFont fontFor(String text, int fontSize) {
-    final size = fontSize.clamp(6, 200);
+    final size = fontSize.clamp(6, maxFontSize);
     if (size == 24) return cjk24;
 
-    final cached = _cache[size];
+    // 大字号（>200）只用于导出，用完即弃；若进缓存，拖动逐帧生成的不同字号
+    // 会堆积大量放大位图，真机很快 OOM。
+    final cached = size <= _cacheMaxFontSize ? _cache[size] : null;
     if (cached != null && _coversAll(cached, text)) return cached;
 
     final font = cached ?? _cloneShell(cjk24, size);
@@ -39,7 +48,7 @@ class CjkText {
       if (base == null) continue; // 字库外的字（生僻字/emoji）仍由 drawString 跳过
       font.characters[code] = _scaleGlyph(base, scale);
     }
-    _cache[size] = font;
+    if (size <= _cacheMaxFontSize) _cache[size] = font;
     return font;
   }
 
@@ -68,8 +77,8 @@ class CjkText {
     img.BitmapFontCharacter base,
     double scale,
   ) {
-    final w = (base.width * scale).round().clamp(1, 400);
-    final h = (base.height * scale).round().clamp(1, 400);
+    final w = (base.width * scale).round().clamp(1, maxFontSize);
+    final h = (base.height * scale).round().clamp(1, maxFontSize);
     final scaled = img.copyResize(
       base.image,
       width: w,
@@ -82,7 +91,7 @@ class CjkText {
       h,
       (base.xOffset * scale).round(),
       (base.yOffset * scale).round(),
-      (base.xAdvance * scale).round().clamp(1, 400),
+      (base.xAdvance * scale).round().clamp(1, maxFontSize),
       base.page,
       base.channel,
     );
@@ -95,25 +104,48 @@ class CjkText {
     return ch;
   }
 
-  /// 测量文本像素宽度（用于水印定位/标注命中区）。
-  static int measureWidth(String text, int fontSize) {
-    final font = fontFor(text, fontSize);
-    var w = 0;
+  /// 按字号线性换算字库基准度量，不生成放大位图。
+  ///
+  /// 拖动缩放每帧都要测量，若走 [fontFor] 会反复缩放整张字形位图导致卡顿。
+  /// 缩放规则与 [_scaleGlyph] 一致，保证框与导出字形对齐。
+  static ({int advance, int height, int inkHeight, int yOffset}) _metrics(
+    String text,
+    int fontSize,
+  ) {
+    final scale = fontSize.clamp(6, maxFontSize) / 24.0;
+    var advance = 0;
+    var height = 0;
+    var inkHeight = 0;
+    var yOffset = 0;
     for (final code in text.codeUnits) {
-      final ch = font.characters[code];
-      w += ch?.xAdvance ?? (font.base ~/ 2);
+      final base = cjk24.characters[code];
+      if (base == null) {
+        advance += (cjk24.base * scale).round() ~/ 2;
+        continue;
+      }
+      final a = (base.xAdvance * scale).round().clamp(1, maxFontSize);
+      final h = (base.height * scale).round().clamp(1, maxFontSize);
+      final yo = (base.yOffset * scale).round();
+      advance += a;
+      if (h > height) height = h;
+      if (h + yo > inkHeight) inkHeight = h + yo;
+      if (yo > yOffset) yOffset = yo;
     }
-    return w;
+    return (
+      advance: advance,
+      height: height,
+      inkHeight: inkHeight,
+      yOffset: yOffset,
+    );
   }
+
+  /// 测量文本像素宽度（用于水印定位/标注命中区）。
+  static int measureWidth(String text, int fontSize) =>
+      _metrics(text, fontSize).advance;
 
   /// 测量文本高度（取最大字形高度，近似行高）。
   static int measureHeight(String text, int fontSize) {
-    final font = fontFor(text, fontSize);
-    var h = 0;
-    for (final code in text.codeUnits) {
-      final ch = font.characters[code];
-      if (ch != null && ch.height > h) h = ch.height;
-    }
+    final h = _metrics(text, fontSize).height;
     return h == 0 ? fontSize : h;
   }
 
@@ -121,27 +153,20 @@ class CjkText {
   ///
   /// 与 [measureHeight] 不同：这里把字形相对基线的 yOffset 一并计入，
   /// 用于给渲染画布留白，避免字形因偏移超出画布被裁切。
-  static int measureInkHeight(String text, int fontSize) {
-    final font = fontFor(text, fontSize);
-    var h = 0;
-    for (final code in text.codeUnits) {
-      final ch = font.characters[code];
-      if (ch != null) {
-        final ink = ch.height + ch.yOffset;
-        if (ink > h) h = ink;
-      }
-    }
-    return h;
-  }
+  static int measureInkHeight(String text, int fontSize) =>
+      _metrics(text, fontSize).inkHeight;
 
   /// 字形相对绘制起点的最大纵向偏移，供预览按导出点阵的基线对齐。
-  static int maxYOffset(String text, int fontSize) {
-    final font = fontFor(text, fontSize);
-    var offset = 0;
-    for (final code in text.codeUnits) {
-      final ch = font.characters[code];
-      if (ch != null && ch.yOffset > offset) offset = ch.yOffset;
-    }
-    return offset;
+  static int maxYOffset(String text, int fontSize) =>
+      _metrics(text, fontSize).yOffset;
+
+  /// 点阵字形在标注框内垂直居中时，绘制起点相对框顶部的偏移。
+  ///
+  /// 框高取 [measureInkHeight]（与创建/缩放时一致），字形顶部还要叠加
+  /// [maxYOffset]，这里把两者抵消，保证上下留白相等。
+  static int centeredYOffset(String text, int fontSize) {
+    final boxHeight = math.max(measureInkHeight(text, fontSize), fontSize);
+    final glyphHeight = measureHeight(text, fontSize);
+    return ((boxHeight - glyphHeight) / 2 - maxYOffset(text, fontSize)).round();
   }
 }

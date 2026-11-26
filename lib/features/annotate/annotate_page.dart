@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image/image.dart' as img;
 
 import '../../app/router.dart';
 import '../../core/image/annotation.dart';
@@ -14,7 +15,7 @@ import '../../core/image/image_header_probe.dart';
 import '../editor/editor_controller.dart';
 import '../editor/editor_state.dart';
 
-/// 标注页（PRD v0.5 / M3）：在图片上叠加七类标注，支持拖动定位与手柄调整。
+/// 标注页（PRD v0.6 / M3）：在图片上叠加八类标注，支持拖动定位与手柄调整。
 ///
 /// 标注存**原图坐标系**（与裁剪一致），视图缩放/平移只影响显示；
 /// 导出时由 [EditorController] 映射到裁剪+缩放后的输出坐标再合成。
@@ -26,6 +27,9 @@ class AnnotatePage extends ConsumerWidget {
     final state = ref.watch(editorControllerProvider);
     void onPick() => ref.read(editorControllerProvider.notifier).pickAndLoad();
     return Scaffold(
+      // 键盘弹出时不压缩画布，否则图片会跟着重新适配、比例位置全变；
+      // 文字编辑弹窗自身会按 viewInsets 上移，不受这里影响。
+      resizeToAvoidBottomInset: false,
       appBar: AppBar(
         title: const Text('标注'),
         actions: [
@@ -55,6 +59,15 @@ class AnnotatePage extends ConsumerWidget {
             onPressed: ref.read(editorControllerProvider.notifier).canRedo
                 ? ref.read(editorControllerProvider.notifier).redo
                 : null,
+          ),
+          IconButton(
+            tooltip: '删除选中标注',
+            icon: const Icon(Icons.delete_outline),
+            onPressed: state.selectedAnnotation == null
+                ? null
+                : () => ref
+                      .read(editorControllerProvider.notifier)
+                      .removeAnnotation(state.selectedAnnotation!),
           ),
           IconButton(
             tooltip: '清空标注',
@@ -112,7 +125,6 @@ enum _Tool {
   rectangle(Icons.crop_square, '矩形'),
   circle(Icons.circle_outlined, '圆形'),
   ellipse(Icons.circle, '椭圆'),
-  mosaic(Icons.grid_on, '马赛克'),
   brush(Icons.blur_on, '涂抹打码'),
   // v0.7 点按放码：两个预设马赛克块，单击即放（纯手动，不做任何识别）。
   avatarBlock(Icons.account_circle, '头像块'),
@@ -129,7 +141,6 @@ enum _Tool {
     _Tool.rectangle => AnnotationType.rectangle,
     _Tool.circle => AnnotationType.circle,
     _Tool.ellipse => AnnotationType.ellipse,
-    _Tool.mosaic => AnnotationType.mosaic,
     _Tool.brush => AnnotationType.brush,
     // 点按放码落到普通马赛克标注，完全复用选中/手柄/撤销/导出/批量管线
     _Tool.avatarBlock => AnnotationType.mosaic,
@@ -215,8 +226,8 @@ enum _FitMode {
   final String label;
 }
 
-/// 手柄方位（框类 4 角 + 线类 2 端）。
-enum _Handle { tl, tr, bl, br, start, end }
+/// 手柄方位（框类 4 角、线类 2 端、圆/椭圆 4 极点）。
+enum _Handle { tl, tr, bl, br, start, end, top, bottom, left, right }
 
 class _AnnotateEditor extends ConsumerStatefulWidget {
   const _AnnotateEditor({super.key, required this.state});
@@ -250,11 +261,16 @@ class _AnnotateEditorState extends ConsumerState<_AnnotateEditor> {
   /// 切换会重置缩放与平移，避免旧视图参数把新图拖到视口外。
   late _FitMode _fitMode;
 
+  /// 预览图像素：马赛克预览按块中心取色，保证取色来自真实底图。
+  img.Image? _previewPixels;
+
   @override
   void initState() {
     super.initState();
     final s = widget.state.decoded!.sourceSize;
     _fitMode = s.height >= s.width * 1.5 ? _FitMode.width : _FitMode.contain;
+    final bytes = widget.state.decoded?.previewPng;
+    if (bytes != null) _previewPixels = img.decodeImage(bytes);
   }
 
   void _setFitMode(_FitMode mode) => setState(() {
@@ -332,6 +348,13 @@ class _AnnotateEditorState extends ConsumerState<_AnnotateEditor> {
     );
   }
 
+  /// 把原图坐标钳进图片范围：落笔/拖动时端点就留在图内，
+  /// 而不是画完再靠 clampToBounds 整体平移（视觉上像被截断）。
+  Offset _boundOrigin(Offset p) => Offset(
+    p.dx.round().clamp(0, _source.width).toDouble(),
+    p.dy.round().clamp(0, _source.height).toDouble(),
+  );
+
   Rect _originRect(Annotation a) {
     if (a.type == AnnotationType.brush && a.points.length >= 2) {
       var minX = a.points[0], maxX = a.points[0];
@@ -395,6 +418,18 @@ class _AnnotateEditorState extends ConsumerState<_AnnotateEditor> {
     if (a.type == AnnotationType.brush) {
       return const [];
     }
+    // 圆/椭圆手柄落在上下左右四个极点（贴着图形边缘），拖极点等比缩放；
+    // 不再用矩形四角——四角手柄会把圆拉成长方形，离边缘越拖越远。
+    if (a.type == AnnotationType.circle || a.type == AnnotationType.ellipse) {
+      final cx = (r.left + r.right) / 2;
+      final cy = (r.top + r.bottom) / 2;
+      return [
+        (key: _Handle.top, pos: Offset(cx, r.top)),
+        (key: _Handle.bottom, pos: Offset(cx, r.bottom)),
+        (key: _Handle.left, pos: Offset(r.left, cy)),
+        (key: _Handle.right, pos: Offset(r.right, cy)),
+      ];
+    }
     return [
       (key: _Handle.tl, pos: Offset(r.left, r.top)),
       (key: _Handle.tr, pos: Offset(r.right, r.top)),
@@ -450,10 +485,10 @@ class _AnnotateEditorState extends ConsumerState<_AnnotateEditor> {
       return;
     }
     _zoomAnchor = null;
-    _startOrigin = _toOrigin(d.localFocalPoint, box);
+    _startOrigin = _boundOrigin(_toOrigin(d.localFocalPoint, box));
 
     // 空格 + 拖动 = 强制平移视图（长图查看时不误触绘制工具）。
-    // 与 select 工具拖空白处一致，但任何工具下都生效。
+    // 与无工具激活时拖空白处一致，但任何工具下都生效。
     if (HardwareKeyboard.instance.logicalKeysPressed.contains(
       LogicalKeyboardKey.space,
     )) {
@@ -492,7 +527,7 @@ class _AnnotateEditorState extends ConsumerState<_AnnotateEditor> {
       // 文字工具：落点弹输入框，确认后才创建（避免"点一下凭空出现文字"却无从编辑）。
       if (type == AnnotationType.text) {
         _mode = _Mode.none;
-        _startTextAt(_startOrigin);
+        _startTextAt(_startOrigin, box);
         return;
       }
       // 绘制工具：在落点新建标注草稿
@@ -532,26 +567,52 @@ class _AnnotateEditorState extends ConsumerState<_AnnotateEditor> {
         strokeWidth: 3,
         text: type == AnnotationType.text ? '文字' : '',
         fontSize: 24,
-        mosaicBlock: 12,
-        // 涂抹打码：起点作为轨迹第一个点，半径/模式在属性条可调
+        mosaicBlock: _defaultMosaicBlock(box),
+        // 涂抹打码：起点作为轨迹第一个点，半径在属性条可调
         points: type == AnnotationType.brush
             ? [_startOrigin.dx.round(), _startOrigin.dy.round()]
             : const [],
-        brushMode: BrushMode.mosaic,
         brushRadius: 24,
       );
       setState(() {});
       return;
     }
 
-    // 选择工具点空白：平移视图
+    // 无工具激活时点空白：平移视图
     _mode = _Mode.view;
   }
 
+  /// 首次字号按屏幕逻辑像素反算到原图：高分辨率图缩到屏幕后，
+  /// 固定的 24 原图像素会小到看不清（真机反馈）。
+  static const _screenFontSize = 18.0;
+
+  /// 字号上限按原图宽度给，高分辨率图不再卡在 200 原图像素。
+  int get _maxFontSize =>
+      math.min(CjkText.maxFontSize, math.max(200, _source.width));
+
+  int _defaultFontSize(Size box) {
+    final screenPerSource = _fitSize(box).width * _scale / _source.width;
+    if (screenPerSource <= 0) return 24;
+    return (_screenFontSize / screenPerSource).round().clamp(6, _maxFontSize);
+  }
+
+  /// 马赛克块按屏幕约 10 逻辑像素反算到原图：固定 12 原图像素在高分辨率图
+  /// 缩到屏幕后不足 1 像素，看不出格子（真机反馈）。
+  static const _screenMosaicBlock = 10.0;
+
+  int _defaultMosaicBlock(Size box) {
+    final screenPerSource = _fitSize(box).width * _scale / _source.width;
+    if (screenPerSource <= 0) return 12;
+    return (_screenMosaicBlock / screenPerSource).round().clamp(
+      4,
+      math.max(40, _source.width),
+    );
+  }
+
   /// 文字弹窗：新建（[origin] 为落点）或编辑已有文字（[editing] 为索引）。
-  /// 颜色在这里一次设定；字号固定 24，放置后用四角手柄等比缩放。
+  /// 落点是文字框中心；颜色在这里一次设定，放置后用四角手柄等比缩放。
   /// 编辑时保留位置与已缩放的字号，只改内容/颜色并按新内容重算框。
-  Future<void> _startTextAt(Offset origin, {int? editing}) async {
+  Future<void> _startTextAt(Offset origin, Size box, {int? editing}) async {
     final existing = editing != null && editing < _annotations.length
         ? _annotations[editing]
         : null;
@@ -621,24 +682,27 @@ class _AnnotateEditorState extends ConsumerState<_AnnotateEditor> {
     // 这里不能提前 dispose——退出动画期间 TextField 仍会引用它。
     if (result == null || result.text.isEmpty || !mounted) return;
 
-    // 编辑保留原位置与字号（用户拖角缩放过），新建用落点与固定字号 24。
-    final fontSize = existing?.fontSize ?? 24;
-    final x1 = (existing?.x1 ?? origin.dx.round()).clamp(0, _source.width);
-    final y1 = (existing?.y1 ?? origin.dy.round()).clamp(0, _source.height);
-
+    // 编辑保留原位置与字号（用户拖角缩放过），新建按当前视图反算字号。
+    final fontSize = existing?.fontSize ?? _defaultFontSize(box);
     // 框按导出端点阵字形的实际度量生成，预览与导出的边界一致；
-    // 字号是原图像素，视图缩放只影响显示，不再参与框计算。
+    // 落点是框中心，靠边时整体平移进图片内，不裁掉文字。
     final w = math.max(CjkText.measureWidth(result.text, fontSize), 1);
     final h = math.max(
       CjkText.measureInkHeight(result.text, fontSize),
       fontSize,
     );
+    final x1 =
+        existing?.x1 ??
+        (origin.dx - w / 2).round().clamp(0, math.max(0, _source.width - w));
+    final y1 =
+        existing?.y1 ??
+        (origin.dy - h / 2).round().clamp(0, math.max(0, _source.height - h));
     final updated = Annotation(
       type: AnnotationType.text,
       x1: x1,
       y1: y1,
-      x2: (x1 + w).round().clamp(0, _source.width),
-      y2: (y1 + h).round().clamp(0, _source.height),
+      x2: x1 + w,
+      y2: y1 + h,
       colorArgb: result.colorArgb,
       strokeWidth: 3,
       text: result.text,
@@ -657,9 +721,12 @@ class _AnnotateEditorState extends ConsumerState<_AnnotateEditor> {
       _applyZoom(d, box);
       return;
     }
-    final now = _toOrigin(d.localFocalPoint, box);
+    final rawNow = _toOrigin(d.localFocalPoint, box);
     switch (_mode) {
       case _Mode.create:
+        // 绘制端点钳进图片，草稿本身就完整落在图内；
+        // 文字缩放例外——允许拖到图外继续放大（见 _Mode.handle）。
+        final now = _boundOrigin(rawNow);
         final base = _draft;
         if (base == null) return;
         // 点按放码：落块尺寸固定，拖动不拉伸（点一下即放好，之后拖手柄调整）
@@ -695,6 +762,9 @@ class _AnnotateEditorState extends ConsumerState<_AnnotateEditor> {
         final base = _startAnnotation;
         final idx = _draftIndex;
         if (base == null || idx == null) return;
+        // 拖动整体平移：保留溢出量，由 controller 的 clampToBounds 把整框推回图内，
+        // 端点与手柄球都完整保留，不会只裁掉越界的半截。
+        final now = rawNow;
         final dx = (now.dx - _startOrigin.dx).round();
         final dy = (now.dy - _startOrigin.dy).round();
         if (_textTapCandidate != null && (dx != 0 || dy != 0)) {
@@ -726,6 +796,10 @@ class _AnnotateEditorState extends ConsumerState<_AnnotateEditor> {
         final idx = _draftIndex;
         final h = _handle;
         if (base == null || idx == null || h == null) return;
+        // 文字缩放允许拖到图外继续放大，其余手柄钳进图片。
+        final now = base.type == AnnotationType.text
+            ? rawNow
+            : _boundOrigin(rawNow);
         _controller.updateAnnotation(idx, _resize(base, h, now));
       case _Mode.view:
         if (_zoomAnchor != null) {
@@ -754,7 +828,7 @@ class _AnnotateEditorState extends ConsumerState<_AnnotateEditor> {
     final anchor = Offset(isLeft ? r.right : r.left, isTop ? r.bottom : r.top);
     final diagonal = math.sqrt(r.width * r.width + r.height * r.height);
     final factor = (now - anchor).distance / diagonal;
-    final fontSize = (base.fontSize * factor).round().clamp(6, 200);
+    final fontSize = (base.fontSize * factor).round().clamp(6, _maxFontSize);
     final w = math.max(CjkText.measureWidth(base.text, fontSize), 1).toDouble();
     final h2 = math
         .max(CjkText.measureInkHeight(base.text, fontSize), fontSize)
@@ -768,8 +842,42 @@ class _AnnotateEditorState extends ConsumerState<_AnnotateEditor> {
     );
   }
 
+  /// 圆/椭圆：拖上下左右极点，圆心固定、按同一比例缩放两轴（保持宽高比）；
+  /// 圆额外约束为正方形。手柄贴在图形边缘，不会像四角那样越拖越脱节。
+  Annotation _resizeEllipse(Annotation base, _Handle h, Offset now) {
+    final r = _originRect(base);
+    final cx = (r.left + r.right) / 2;
+    final cy = (r.top + r.bottom) / 2;
+    final rx = r.width / 2;
+    final ry = r.height / 2;
+    if (rx < 1 || ry < 1) return base;
+    final factor = switch (h) {
+      _Handle.top => (cy - now.dy) / ry,
+      _Handle.bottom => (now.dy - cy) / ry,
+      _Handle.left => (cx - now.dx) / rx,
+      _Handle.right => (now.dx - cx) / rx,
+      _ => 0.0,
+    };
+    if (factor <= 0) return base; // 拖过圆心不翻转
+    var nextRx = rx * factor;
+    var nextRy = ry * factor;
+    if (base.type == AnnotationType.circle) {
+      nextRx = nextRy = math.max(nextRx, nextRy);
+    }
+    return base.copyWith(
+      x1: (cx - nextRx).round(),
+      y1: (cy - nextRy).round(),
+      x2: (cx + nextRx).round(),
+      y2: (cy + nextRy).round(),
+    );
+  }
+
   Annotation _resize(Annotation base, _Handle h, Offset now) {
     if (base.type == AnnotationType.text) return _resizeText(base, h, now);
+    if (base.type == AnnotationType.circle ||
+        base.type == AnnotationType.ellipse) {
+      return _resizeEllipse(base, h, now);
+    }
     final x = now.dx.round();
     final y = now.dy.round();
     switch (h) {
@@ -785,10 +893,15 @@ class _AnnotateEditorState extends ConsumerState<_AnnotateEditor> {
         return base.copyWith(x1: x, y2: y);
       case _Handle.br:
         return base.copyWith(x2: x, y2: y);
+      case _Handle.top:
+      case _Handle.bottom:
+      case _Handle.left:
+      case _Handle.right:
+        return base;
     }
   }
 
-  void _onScaleEnd(ScaleEndDetails d) {
+  void _onScaleEnd(ScaleEndDetails d, Size box) {
     // 新建标注：落笔即提交一次（撤销粒度 = 一次绘制）
     final placedPreset = _mode == _Mode.create && _tool.tapPresetSize != null;
     if (_mode == _Mode.create && _draft != null) {
@@ -822,7 +935,7 @@ class _AnnotateEditorState extends ConsumerState<_AnnotateEditor> {
     setState(() {});
     // 纯轻点已有文字：弹编辑窗改内容（拖动已在 update 阶段清掉候选）
     if (textTapIndex != null && mounted) {
-      _startTextAt(Offset.zero, editing: textTapIndex);
+      _startTextAt(Offset.zero, box, editing: textTapIndex);
     }
   }
 
@@ -909,18 +1022,27 @@ class _AnnotateEditorState extends ConsumerState<_AnnotateEditor> {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
+    return Stack(
       children: [
-        _buildToolbar(),
-        _buildViewBar(),
-        _buildBlurBar(),
-        Expanded(child: _buildCanvas()),
-        // 属性条避开系统底部手势区，避免手机上"太靠下"够不着
-        const SafeArea(
-          top: false,
-          left: false,
-          right: false,
-          child: _PropertyBar(),
+        Column(
+          children: [
+            _buildToolbar(),
+            _buildViewBar(),
+            _buildBlurBar(),
+            Expanded(child: _buildCanvas()),
+          ],
+        ),
+        // 属性条浮在画布之上，不占布局高度；键盘弹出时图片尺寸不会跟着变。
+        const Positioned(
+          left: 0,
+          right: 0,
+          bottom: 0,
+          child: SafeArea(
+            top: false,
+            left: false,
+            right: false,
+            child: _PropertyBar(),
+          ),
         ),
       ],
     );
@@ -1028,14 +1150,18 @@ class _AnnotateEditorState extends ConsumerState<_AnnotateEditor> {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       child: Row(
         children: [
-          for (final tool in _Tool.values)
+          // select 是「无工具激活」的内部态，不给独立按钮：
+          // 再次点已激活工具即可退回，点到已有标注照样能选中/调整。
+          for (final tool in _Tool.values.where((t) => t != _Tool.select))
             Padding(
               padding: const EdgeInsets.only(right: 6),
               child: ChoiceChip(
                 label: Text(tool.label),
                 avatar: Icon(tool.icon, size: 16),
                 selected: _tool == tool,
-                onSelected: (_) => setState(() => _tool = tool),
+                // 再点一次已激活工具 → 退回选择态；点未激活工具 → 激活它。
+                onSelected: (selected) =>
+                    setState(() => _tool = selected ? tool : _Tool.select),
               ),
             ),
         ],
@@ -1064,7 +1190,7 @@ class _AnnotateEditorState extends ConsumerState<_AnnotateEditor> {
                 behavior: HitTestBehavior.opaque,
                 onScaleStart: (d) => _onScaleStart(d, box),
                 onScaleUpdate: (d) => _onScaleUpdate(d, box),
-                onScaleEnd: _onScaleEnd,
+                onScaleEnd: (d) => _onScaleEnd(d, box),
                 child: ClipRect(
                   child: Stack(
                     children: [
@@ -1092,6 +1218,7 @@ class _AnnotateEditorState extends ConsumerState<_AnnotateEditor> {
                                     fit: _fitSize(box),
                                     origin: _origin(box),
                                     scale: _scale,
+                                    previewPixels: _previewPixels,
                                   ),
                                 ),
                               ),
@@ -1120,11 +1247,17 @@ class _PropertyBar extends ConsumerWidget {
     final state = ref.watch(editorControllerProvider);
     final idx = state.selectedAnnotation;
     if (idx == null || idx >= state.annotations.length) {
-      return const SizedBox(height: 48);
+      return const SizedBox.shrink();
     }
     final a = state.annotations[idx];
+    // 文字改色在编辑弹窗里完成，属性条没有可用控件时不留灰色空条。
+    if (a.type == AnnotationType.text) return const SizedBox.shrink();
     final c = ref.read(editorControllerProvider.notifier);
     final color = Color(a.colorArgb);
+    // 块上限按图片宽度给，避免高分辨率图的默认块超出滑块范围被夹回小值。
+    final maxBlock = math
+        .max(40, state.decoded?.sourceSize.width ?? 40)
+        .toDouble();
 
     return Container(
       height: 56,
@@ -1182,9 +1315,9 @@ class _PropertyBar extends ConsumerWidget {
                     const Text('块'),
                     Expanded(
                       child: Slider(
-                        value: a.mosaicBlock.toDouble().clamp(2, 40),
+                        value: a.mosaicBlock.toDouble().clamp(2, maxBlock),
                         min: 2,
-                        max: 40,
+                        max: maxBlock,
                         onChangeStart: (_) => c.beginAnnotationGesture(),
                         onChangeEnd: (_) => c.endAnnotationGesture(),
                         onChanged: (v) => c.updateAnnotation(
@@ -1197,17 +1330,6 @@ class _PropertyBar extends ConsumerWidget {
                 ),
               ),
             if (a.type == AnnotationType.brush) ...[
-              SegmentedButton<BrushMode>(
-                segments: const [
-                  ButtonSegment(value: BrushMode.mosaic, label: Text('马赛克')),
-                  ButtonSegment(value: BrushMode.blur, label: Text('模糊')),
-                ],
-                selected: {a.brushMode},
-                onSelectionChanged: (v) =>
-                    c.updateAnnotation(idx, a.copyWith(brushMode: v.first)),
-                showSelectedIcon: false,
-                style: const ButtonStyle(visualDensity: VisualDensity.compact),
-              ),
               SizedBox(
                 width: 160,
                 child: Row(
@@ -1275,6 +1397,7 @@ class _AnnotationPainter extends CustomPainter {
     required this.fit,
     required this.origin,
     required this.scale,
+    required this.previewPixels,
   });
 
   final List<Annotation> annotations;
@@ -1284,6 +1407,7 @@ class _AnnotationPainter extends CustomPainter {
   final Size fit;
   final Offset origin;
   final double scale;
+  final img.Image? previewPixels;
 
   Offset _p(double x, double y) => Offset(
     origin.dx + x * fit.width / source.width,
@@ -1293,10 +1417,56 @@ class _AnnotationPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final all = draft == null ? annotations : [...annotations, draft!];
+    // 标注本体裁剪到图片矩形，涂抹半径不越界；
+    // 手柄球在裁剪区外绘制，贴边时仍能完整看到两端/四角的手柄。
+    canvas.save();
+    canvas.clipRect(Rect.fromLTWH(origin.dx, origin.dy, fit.width, fit.height));
     for (var i = 0; i < all.length; i++) {
       final a = all[i];
       final isSelected = i == selected && draft == null;
       _drawOne(canvas, a, isSelected, draft != null && i == all.length - 1);
+    }
+    canvas.restore();
+
+    if (selected != null && selected! < all.length && draft == null) {
+      _drawHandles(canvas, all[selected!]);
+    }
+  }
+
+  /// 选中标注的手柄球：在裁剪区外绘制，端点贴着图片边缘时也完整可见。
+  void _drawHandles(Canvas canvas, Annotation a) {
+    if (a.type == AnnotationType.brush) return;
+    final p1 = _p(a.x1.toDouble(), a.y1.toDouble());
+    final p2 = _p(a.x2.toDouble(), a.y2.toDouble());
+    final rect = Rect.fromPoints(p1, p2);
+    final hp = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.fill;
+    final outline = Paint()
+      ..color = Colors.black
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1;
+    final handles =
+        a.type == AnnotationType.line || a.type == AnnotationType.arrow
+        ? [p1, p2]
+        : a.type == AnnotationType.circle || a.type == AnnotationType.ellipse
+        ? [
+            // 上下左右极点，贴在图形边缘；与命中测试 _handles 一致。
+            Offset(rect.center.dx, rect.top),
+            Offset(rect.center.dx, rect.bottom),
+            Offset(rect.left, rect.center.dy),
+            Offset(rect.right, rect.center.dy),
+          ]
+        : [
+            Offset(rect.left, rect.top),
+            Offset(rect.right, rect.top),
+            Offset(rect.left, rect.bottom),
+            Offset(rect.right, rect.bottom),
+          ];
+    final r = 5.0 / scale;
+    for (final h in handles) {
+      canvas.drawCircle(h, r + 1, outline);
+      canvas.drawCircle(h, r, hp);
     }
   }
 
@@ -1315,7 +1485,8 @@ class _AnnotationPainter extends CustomPainter {
     switch (a.type) {
       case AnnotationType.text:
         // 字号按原图→fit 换算，外层 Transform 统一承担视图缩放；
-        // 纵向再按导出点阵的 yOffset 偏移，保证预览与导出同一基线。
+        // 系统字体与导出点阵字形度量不同，按实际排版尺寸在框内居中，
+        // 避免右侧/顶部留白忽大忽小。
         final fitFactor = fit.width / source.width;
         final tp = TextPainter(
           text: TextSpan(
@@ -1331,8 +1502,8 @@ class _AnnotationPainter extends CustomPainter {
         tp.paint(
           canvas,
           Offset(
-            p1.dx,
-            p1.dy + CjkText.maxYOffset(a.text, a.fontSize) * fitFactor,
+            rect.left + (rect.width - tp.width) / 2,
+            rect.top + (rect.height - tp.height) / 2,
           ),
         );
         // 选中文字：虚框与四角手柄共用 x1/y1~x2/y2，拖本体定位、拖角等比缩放。
@@ -1356,54 +1527,55 @@ class _AnnotationPainter extends CustomPainter {
         canvas.drawRect(rect, paint);
         break;
       case AnnotationType.circle:
-        final r = math.min(rect.width, rect.height) / 2;
-        canvas.drawCircle(rect.center, r, paint);
-        break;
       case AnnotationType.ellipse:
+        // 椭圆填满外接矩形，与导出 _drawEllipse（rx/ry 各取半宽半高）一致；
+        // 圆因等比缩放始终维持正方形外接框，画出来就是正圆。
         canvas.drawOval(rect, paint);
         break;
       case AnnotationType.mosaic:
-        // 固定雪花点：预览直接用与导出相同的 snowGray 画块，零像素计算。
-        _drawSnowRect(canvas, a.x1, a.y1, a.x2, a.y2, a.mosaicBlock);
+        // 按底图块中心取色，与导出同一语义。
+        _drawColorRect(canvas, a.x1, a.y1, a.x2, a.y2, a.mosaicBlock);
         if (isSelected) canvas.drawRect(rect, paint..strokeWidth = 1.5);
         break;
       case AnnotationType.brush:
-        // 马赛克涂抹画雪花轨迹；毛玻璃（blur）用半透明示意（无法用雪花表达）。
-        if (a.brushMode == BrushMode.blur) {
-          _drawBrushPreview(canvas, a);
-        } else {
-          _drawSnowStroke(canvas, a);
-        }
+        // 涂抹打码只有马赛克一种模式，按块中心取色。
+        _drawColorStroke(canvas, a);
         break;
-    }
-
-    if (isSelected && a.type != AnnotationType.brush) {
-      final hp = Paint()
-        ..color = Colors.white
-        ..style = PaintingStyle.fill;
-      final outline = Paint()
-        ..color = Colors.black
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1;
-      final handles =
-          a.type == AnnotationType.line || a.type == AnnotationType.arrow
-          ? [p1, p2]
-          : [
-              Offset(rect.left, rect.top),
-              Offset(rect.right, rect.top),
-              Offset(rect.left, rect.bottom),
-              Offset(rect.right, rect.bottom),
-            ];
-      final r = 5.0 / scale;
-      for (final h in handles) {
-        canvas.drawCircle(h, r + 1, outline);
-        canvas.drawCircle(h, r, hp);
-      }
     }
   }
 
-  /// 在原图矩形区域画固定雪花点。块起点、块坐标与导出 _applyMosaic 一致。
-  void _drawSnowRect(
+  /// 把预览图上对应块的中心像素色铺到画布矩形里。
+  ///
+  /// 每块只采样一次（而不是逐像素求均值），拖动逐帧重绘不再卡；
+  /// 与导出端 _blockCenterColor 同一语义，相邻块取不同底图像素形成像素格子。
+  void _drawColorBlock(Canvas canvas, int bx, int by, int block, Rect dst) {
+    final preview = previewPixels;
+    if (preview == null || dst.isEmpty) return;
+    final cx = (bx + block ~/ 2).clamp(0, source.width - 1);
+    final cy = (by + block ~/ 2).clamp(0, source.height - 1);
+    final sx = (cx * preview.width / source.width).floor().clamp(
+      0,
+      preview.width - 1,
+    );
+    final sy = (cy * preview.height / source.height).floor().clamp(
+      0,
+      preview.height - 1,
+    );
+    final p = preview.getPixel(sx, sy);
+    canvas.drawRect(
+      dst,
+      Paint()
+        ..color = Color.fromARGB(
+          preview.hasAlpha ? p.a.toInt() : 255,
+          p.r.toInt(),
+          p.g.toInt(),
+          p.b.toInt(),
+        ),
+    );
+  }
+
+  /// 在原图矩形区域按块中心取色。块起点/网格与导出 _applyMosaic 一致。
+  void _drawColorRect(
     Canvas canvas,
     int x1,
     int y1,
@@ -1418,26 +1590,22 @@ class _AnnotationPainter extends CustomPainter {
     final block = math.max(2, blockSize);
     for (var by = top; by <= bottom; by += block) {
       for (var bx = left; bx <= right; bx += block) {
-        final g = snowGray(bx ~/ block, by ~/ block);
         final tl = _p(bx.toDouble(), by.toDouble());
         final br = _p(
           math.min(bx + block, right + 1).toDouble(),
           math.min(by + block, bottom + 1).toDouble(),
         );
-        canvas.drawRect(
-          Rect.fromPoints(tl, br),
-          Paint()..color = Color.fromARGB(255, g, g, g),
-        );
+        _drawColorBlock(canvas, bx, by, block, Rect.fromPoints(tl, br));
       }
     }
   }
 
-  /// 涂抹马赛克：沿轨迹按块填雪花点，块坐标取全局网格（与导出一致）。
-  void _drawSnowStroke(Canvas canvas, Annotation a) {
+  /// 涂抹马赛克：沿轨迹按块中心取色，块坐标取全局网格（与导出一致）。
+  void _drawColorStroke(Canvas canvas, Annotation a) {
     final pts = a.points;
     if (pts.length < 2) return;
     final block = math.max(2, a.mosaicBlock);
-    // 收集轨迹覆盖的块坐标（按圆刷半径外扩），去重后逐块画雪花方块。
+    // 收集轨迹覆盖的块坐标（按圆刷半径外扩），去重后逐块画色块。
     final covered = <(int, int)>{};
     for (var i = 0; i < pts.length; i += 2) {
       final cx = pts[i];
@@ -1450,45 +1618,10 @@ class _AnnotationPainter extends CustomPainter {
       }
     }
     for (final (bx, by) in covered) {
-      final g = snowGray(bx ~/ block, by ~/ block);
       final tl = _p(bx.toDouble(), by.toDouble());
       final br = _p((bx + block).toDouble(), (by + block).toDouble());
-      canvas.drawRect(
-        Rect.fromPoints(tl, br),
-        Paint()..color = Color.fromARGB(255, g, g, g),
-      );
+      _drawColorBlock(canvas, bx, by, block, Rect.fromPoints(tl, br));
     }
-  }
-
-  /// 涂抹模糊的轨迹预览：半透明圆头粗线，半径按 fit 比例换算，视图缩放由外层 Transform 承担。
-  /// 只示意覆盖范围；导出时由 annotation.dart 的 _applyBrush 做整图高斯模糊 + 掩码替换，
-  /// 效果与这条示意线并不完全一致（预览无法呈现真实毛玻璃）。
-  void _drawBrushPreview(Canvas canvas, Annotation a) {
-    final pts = a.points;
-    if (pts.isEmpty) return;
-    final paint = Paint()
-      ..color =
-          (a.brushMode == BrushMode.blur
-                  ? const Color(0xFF42A5F5)
-                  : const Color(0xFFFF7043))
-              .withValues(alpha: 0.4)
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round
-      ..strokeWidth = a.brushRadius * 2 * fit.width / source.width;
-    final screen = <Offset>[
-      for (var i = 0; i < pts.length; i += 2)
-        _p(pts[i].toDouble(), pts[i + 1].toDouble()),
-    ];
-    if (screen.length == 1) {
-      canvas.drawCircle(
-        screen.first,
-        paint.strokeWidth / 2,
-        paint..style = PaintingStyle.fill,
-      );
-      return;
-    }
-    canvas.drawPoints(ui.PointMode.polygon, screen, paint);
   }
 
   void _drawArrow(Canvas canvas, Offset p1, Offset p2, Paint paint) {
@@ -1516,5 +1649,6 @@ class _AnnotationPainter extends CustomPainter {
       old.selected != selected ||
       old.scale != scale ||
       old.origin != origin ||
-      old.fit != fit;
+      old.fit != fit ||
+      old.previewPixels != previewPixels;
 }

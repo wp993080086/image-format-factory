@@ -748,14 +748,12 @@ void main() {
 
     expect(find.byKey(const ValueKey('annotateCanvas')), findsOneWidget);
     for (final label in [
-      '选择',
       '文字',
       '直线',
       '箭头',
       '矩形',
       '圆形',
       '椭圆',
-      '马赛克',
       '涂抹打码',
       '头像块',
       '昵称条',
@@ -766,6 +764,16 @@ void main() {
         reason: label,
       );
     }
+    expect(
+      find.widgetWithText(ChoiceChip, '选择'),
+      findsNothing,
+      reason: '选择按钮已移除，退出工具激活即为选择态',
+    );
+    expect(
+      find.widgetWithText(ChoiceChip, '马赛克'),
+      findsNothing,
+      reason: '独立马赛克按钮已移除，涂抹打码内仍可选马赛克模式',
+    );
 
     // 选矩形工具，在画布上拖出一个框
     await tester.tap(find.widgetWithText(ChoiceChip, '矩形'));
@@ -810,6 +818,79 @@ void main() {
     );
   });
 
+  testWidgets('标注页：工具点一次激活，再点一次取消高亮回到选择态', (tester) async {
+    await _bootHome(tester, size: const ImageDimensions(128, 128));
+    await _importImage(tester);
+    await tester.tap(find.text('标注与打码'));
+    await tester.pumpAndSettle();
+
+    ChoiceChip chip(String label) =>
+        tester.widget<ChoiceChip>(find.widgetWithText(ChoiceChip, label));
+    Finder activeTools() =>
+        find.byWidgetPredicate((w) => w is ChoiceChip && w.selected);
+
+    expect(
+      find.widgetWithText(ChoiceChip, '选择'),
+      findsNothing,
+      reason: '选择按钮已移除',
+    );
+    expect(activeTools(), findsNothing, reason: '进入页面无工具高亮');
+
+    await tester.tap(find.widgetWithText(ChoiceChip, '矩形'));
+    await tester.pumpAndSettle();
+    expect(chip('矩形').selected, isTrue, reason: '点未激活工具应激活');
+
+    await tester.tap(find.widgetWithText(ChoiceChip, '矩形'));
+    await tester.pumpAndSettle();
+    expect(chip('矩形').selected, isFalse, reason: '再点已激活工具应退出');
+    expect(activeTools(), findsNothing, reason: '退出后无工具高亮（选择态）');
+  });
+
+  testWidgets('标注页：删除选中标注按钮随选中态启用并删除', (tester) async {
+    await _bootHome(tester, size: const ImageDimensions(128, 128));
+    await _importImage(tester);
+    await tester.tap(find.text('标注与打码'));
+    await tester.pumpAndSettle();
+
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(Scaffold).first),
+    );
+    List<Annotation> anns() =>
+        container.read(editorControllerProvider).annotations;
+    Finder deleteFinder() =>
+        find.byWidgetPredicate((w) => w is IconButton && w.tooltip == '删除选中标注');
+
+    expect(
+      tester.widget<IconButton>(deleteFinder()).onPressed,
+      isNull,
+      reason: '无标注时删除按钮禁用',
+    );
+
+    await tester.tap(find.widgetWithText(ChoiceChip, '矩形'));
+    await tester.pumpAndSettle();
+    final rect = tester.getRect(find.byKey(const ValueKey('annotateCanvas')));
+    await tester.dragFrom(
+      Offset(rect.left + 20, rect.top + 20),
+      const Offset(60, 60),
+    );
+    await tester.pumpAndSettle();
+    expect(anns().length, 1);
+    expect(
+      tester.widget<IconButton>(deleteFinder()).onPressed,
+      isNotNull,
+      reason: '创建后自动选中，删除按钮可用',
+    );
+
+    await tester.tap(deleteFinder());
+    await tester.pumpAndSettle();
+    expect(anns(), isEmpty, reason: '点删除按钮应移除选中标注');
+    expect(
+      tester.widget<IconButton>(deleteFinder()).onPressed,
+      isNull,
+      reason: '删完无选中，按钮禁用',
+    );
+  });
+
   testWidgets('标注页：涂抹打码工具可拖拽创建并进入属性条', (tester) async {
     await _bootHome(tester, size: const ImageDimensions(128, 128));
     await _importImage(tester);
@@ -826,9 +907,10 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // 创建后自动选中，属性条出现笔刷半径滑块与模式切换
+    // 创建后自动选中，属性条只有笔刷半径滑块（模式固定马赛克，无切换项）
     expect(find.text('笔刷'), findsOneWidget);
-    expect(find.text('模糊'), findsWidgets);
+    expect(find.text('模糊'), findsNothing);
+    expect(find.text('马赛克'), findsNothing);
   });
 
   testWidgets('标注页：整图模糊滑块可调且数值实时反映', (tester) async {
@@ -940,6 +1022,11 @@ void main() {
     final before = anns().last;
     expect(container.read(editorControllerProvider).selectedAnnotation, 0);
 
+    // 再点一次矩形退出激活（无「选择」按钮后靠此回到选择态），
+    // 命中优先逻辑应保证退出后仍能拖已有标注的手柄
+    await tester.tap(find.widgetWithText(ChoiceChip, '矩形'));
+    await tester.pumpAndSettle();
+
     // 右下手柄位于框的右下角屏幕坐标，向外拖 40px 应变大
     final br = start + dragDelta;
     await tester.dragFrom(br, const Offset(50, 40));
@@ -947,6 +1034,59 @@ void main() {
     final after = anns().last;
     expect(after.x2, greaterThan(before.x2), reason: '拖动右下手柄应放大宽度');
     expect(after.y2, greaterThan(before.y2), reason: '拖动右下手柄应放大高度');
+  });
+
+  testWidgets('标注页：圆的手柄落在右极点，拖动等比放大且保持正圆', (tester) async {
+    await _bootHome(tester, size: const ImageDimensions(512, 512));
+    await _importImage(tester);
+    await tester.tap(find.text('标注与打码'));
+    await tester.pumpAndSettle();
+
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(Scaffold).first),
+    );
+    List<Annotation> anns() =>
+        container.read(editorControllerProvider).annotations;
+
+    await tester.tap(find.widgetWithText(ChoiceChip, '圆形'));
+    await tester.pumpAndSettle();
+    final rect = tester.getRect(find.byKey(const ValueKey('annotateCanvas')));
+    // contain 模式：方形图按视口短边铺满再居中。把原图坐标正向换算成屏幕坐标，
+    // 在图片中央创建圆，放大后不越界，才能验证纯缩放而非 clamp 平移。
+    const aspect = 512 / 512;
+    final boxAspect = rect.width / rect.height;
+    final fitW = aspect > boxAspect ? rect.width : rect.height * aspect;
+    final fitH = aspect > boxAspect ? rect.width / aspect : rect.height;
+    final originX = rect.left + (rect.width - fitW) / 2;
+    final originY = rect.top + (rect.height - fitH) / 2;
+    Offset screen(double x, double y) =>
+        Offset(originX + x * fitW / 512, originY + y * fitH / 512);
+
+    // 在中央从原图 (156,156) 拖到 (356,356)，得到边长 200 的正方形。
+    // dragFrom 第二参数是位移，必须是两个屏幕坐标之差。
+    await tester.dragFrom(
+      screen(156, 156),
+      screen(356, 356) - screen(156, 156),
+    );
+    await tester.pumpAndSettle();
+    final before = anns().last;
+    expect(before.x2 - before.x1, before.y2 - before.y1, reason: '创建时为正方形');
+    final cx = (before.x1 + before.x2) / 2;
+    final cy = (before.y1 + before.y2) / 2;
+
+    // 右极点 = (x2, 圆心 y)，向外拖 60 屏幕像素应等比放大
+    await tester.dragFrom(
+      screen(before.x2.toDouble(), cy),
+      const Offset(60, 0),
+    );
+    await tester.pumpAndSettle();
+    final after = anns().last;
+    final w = after.x2 - after.x1;
+    final h = after.y2 - after.y1;
+    expect(w, greaterThan(before.x2 - before.x1), reason: '拖右极点应放大');
+    expect(w, h, reason: '圆必须保持正圆，不能拉成长方形');
+    expect((after.x1 + after.x2) / 2, closeTo(cx, 2), reason: '圆心横向不动');
+    expect((after.y1 + after.y2) / 2, closeTo(cy, 2), reason: '圆心纵向不动');
   });
 
   testWidgets('标注页：按住空格拖动只平移视图，不新建标注', (tester) async {

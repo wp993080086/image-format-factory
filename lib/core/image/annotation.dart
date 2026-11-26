@@ -17,21 +17,11 @@ enum AnnotationType {
   ellipse,
   mosaic,
 
-  /// 画笔涂抹打码：沿一条自由轨迹打码（马赛克 / 高斯模糊二选一）。
+  /// 画笔涂抹打码：沿一条自由轨迹打块中心取色的马赛克。
   ///
   /// 与 [mosaic] 的区别：mosaic 是矩形框，一次覆盖；brush 是一串连续点，
   /// 适合"随手抹几笔"把昵称、头像涂抹掉（v0.6 用户新增需求）。
   brush,
-}
-
-/// 涂抹打码的填充方式。
-enum BrushMode {
-  /// 固定雪花点马赛克：与底图无关、按全局块坐标确定性生成灰度，
-  /// 预览与导出共用 [snowGray]（不做逐像素采样，见 v0.5 性能优化）。
-  mosaic,
-
-  /// 高斯模糊（毛玻璃）。
-  blur,
 }
 
 /// 一条标注（矢量数据，不直接改像素，支持撤销/重做与二次编辑）。
@@ -51,7 +41,6 @@ class Annotation {
     this.fontSize = 24,
     this.mosaicBlock = 12,
     this.points = const <int>[],
-    this.brushMode = BrushMode.mosaic,
     this.brushRadius = 24,
   });
 
@@ -80,11 +69,44 @@ class Annotation {
   /// 纯 int 列表可零成本随其它字段一起送进编码 Isolate，不引入 Flutter 依赖。
   final List<int> points;
 
-  /// 涂抹填充方式（仅 brush 类型）。
-  final BrushMode brushMode;
-
   /// 笔刷半径，原图像素（仅 brush 类型）。
   final int brushRadius;
+
+  /// 把所有坐标钳制到图片范围内，避免标注伸出图片外。
+  ///
+  /// 框类标注整体平移（保持宽高），涂抹轨迹逐点钳制；宽高超过图片时不拉伸，
+  /// 只把左上角归零，导出端仍会按图片边界裁掉超出部分。
+  Annotation clampToBounds(int width, int height) {
+    if (width <= 0 || height <= 0) return this;
+    if (type == AnnotationType.brush) {
+      final pts = <int>[
+        for (var i = 0; i < points.length; i += 2) ...[
+          points[i].clamp(0, width - 1).toInt(),
+          points[i + 1].clamp(0, height - 1).toInt(),
+        ],
+      ];
+      if (pts.length < 2) return this;
+      var minX = pts[0], maxX = pts[0];
+      var minY = pts[1], maxY = pts[1];
+      for (var i = 2; i < pts.length; i += 2) {
+        minX = math.min(minX, pts[i]);
+        maxX = math.max(maxX, pts[i]);
+        minY = math.min(minY, pts[i + 1]);
+        maxY = math.max(maxY, pts[i + 1]);
+      }
+      return copyWith(points: pts, x1: minX, y1: minY, x2: maxX, y2: maxY);
+    }
+    final left = math.min(x1, x2);
+    final top = math.min(y1, y2);
+    final boxW = (x1 - x2).abs();
+    final boxH = (y1 - y2).abs();
+    final newLeft = left.clamp(0, math.max(0, width - boxW));
+    final newTop = top.clamp(0, math.max(0, height - boxH));
+    final dx = (newLeft - left).toInt();
+    final dy = (newTop - top).toInt();
+    if (dx == 0 && dy == 0) return this;
+    return copyWith(x1: x1 + dx, y1: y1 + dy, x2: x2 + dx, y2: y2 + dy);
+  }
 
   /// 返回一份只改动指定字段的新标注（拖动/手柄调整时逐帧构造用）。
   Annotation copyWith({
@@ -99,7 +121,6 @@ class Annotation {
     int? fontSize,
     int? mosaicBlock,
     List<int>? points,
-    BrushMode? brushMode,
     int? brushRadius,
   }) => Annotation(
     type: type ?? this.type,
@@ -113,7 +134,6 @@ class Annotation {
     fontSize: fontSize ?? this.fontSize,
     mosaicBlock: mosaicBlock ?? this.mosaicBlock,
     points: points ?? this.points,
-    brushMode: brushMode ?? this.brushMode,
     brushRadius: brushRadius ?? this.brushRadius,
   );
 }
@@ -126,7 +146,7 @@ img.Image applyAnnotations(img.Image source, List<Annotation> annotations) {
   if (annotations.isEmpty) return source;
   final result = img.Image.from(source);
   for (final a in annotations) {
-    _drawOne(result, a);
+    _drawOne(result, a.clampToBounds(source.width, source.height));
   }
   return result;
 }
@@ -140,9 +160,17 @@ void _drawOne(img.Image image, Annotation a) {
   );
   switch (a.type) {
     case AnnotationType.text:
-      // 内嵌中文字体（按字号缩放），支持中文文字标注
+      // 内嵌中文字体（按字号缩放），支持中文文字标注；
+      // 框以落点为中心生成，字形按点阵度量在框内垂直居中。
       final font = CjkText.fontFor(a.text, a.fontSize);
-      img.drawString(image, a.text, font: font, x: a.x1, y: a.y1, color: color);
+      img.drawString(
+        image,
+        a.text,
+        font: font,
+        x: a.x1,
+        y: a.y1 + CjkText.centeredYOffset(a.text, a.fontSize),
+        color: color,
+      );
     case AnnotationType.line:
       img.drawLine(
         image,
@@ -256,19 +284,22 @@ void _drawEllipse(img.Image image, Annotation a, img.Color color) {
   );
 }
 
-/// 固定雪花点图案：按全局块坐标生成确定性灰度，块内同色、块间随机。
-///
-/// 不读取底图像素——马赛克就是盖一层固定雪花图案，因此预览与导出共用本函数
-/// 即可天然一致，也无需逐像素采样/编解码整张图（真机卡顿的根因）。
-/// 灰度限制在 48~208，避开纯黑纯白，观感接近常见马赛克雪花。
-int snowGray(int blockX, int blockY) {
-  var h = (blockX * 374761393 + blockY * 668265263) & 0xffffffff;
-  h = ((h ^ (h >> 13)) * 1274126177) & 0xffffffff;
-  h = (h ^ (h >> 16)) & 0xffffffff;
-  return 48 + (h % 161);
+/// 取一个块的中心像素色：整块填同一个色，相邻块取不同底图像素，
+/// 形成经典像素格子马赛克。每块只采样一次，拖动预览逐帧重绘时不会卡顿。
+/// 块矩形由调用方给定（已钳到边界）。
+img.Color _blockCenterColor(img.Image image, int bx, int by, int ex, int ey) {
+  final x = ((bx + ex) ~/ 2).clamp(0, image.width - 1);
+  final y = ((by + ey) ~/ 2).clamp(0, image.height - 1);
+  final p = image.getPixel(x, y);
+  return img.ColorRgba8(
+    p.r.toInt(),
+    p.g.toInt(),
+    p.b.toInt(),
+    image.hasAlpha ? p.a.toInt() : 255,
+  );
 }
 
-/// 矩形马赛克：用固定雪花点盖住框内区域（不读底图像素）。
+/// 矩形马赛克：按块中心底图像素填色，整块统一。
 void _applyMosaic(img.Image image, Annotation a) {
   final left = math.max(0, math.min(a.x1, a.x2));
   final top = math.max(0, math.min(a.y1, a.y2));
@@ -280,25 +311,22 @@ void _applyMosaic(img.Image image, Annotation a) {
     for (var bx = left; bx <= right; bx += block) {
       final ex = math.min(bx + block - 1, right);
       final ey = math.min(by + block - 1, bottom);
-      final g = snowGray(bx ~/ block, by ~/ block);
       img.fillRect(
         image,
         x1: bx,
         y1: by,
         x2: ex,
         y2: ey,
-        color: img.ColorRgba8(g, g, g, 255),
+        color: _blockCenterColor(image, bx, by, ex, ey),
       );
     }
   }
 }
 
-/// 涂抹打码：沿一条自由轨迹把覆盖区域打码。
+/// 涂抹打码：沿一条自由轨迹把覆盖区域打成马赛克。
 ///
 /// 两步：先把轨迹（点间线性插值，避免快速拖动留缝）连同笔刷半径烘成一张
-/// 覆盖掩码，再按 [BrushMode] 只对掩码内的像素填充——马赛克写入固定雪花点
-/// （[snowGray]，与底图无关、零像素采样），模糊则整图高斯模糊后把掩码内的
-/// 像素换回。
+/// 覆盖掩码，再对掩码内的像素按块中心取色填色。
 void _applyBrush(img.Image image, Annotation a) {
   final pts = a.points;
   if (pts.length < 2) return;
@@ -341,16 +369,11 @@ void _applyBrush(img.Image image, Annotation a) {
   }
   if (pts.length == 2) stampCircle(pts[0], pts[1]);
 
-  // 2) 按模式填充掩码区域。
-  switch (a.brushMode) {
-    case BrushMode.mosaic:
-      _mosaicMasked(image, mask, math.max(2, a.mosaicBlock));
-    case BrushMode.blur:
-      _blurMasked(image, mask, radius);
-  }
+  // 2) 掩码内按块中心取色填色。
+  _mosaicMasked(image, mask, math.max(2, a.mosaicBlock));
 }
 
-/// 掩码内按块填固定雪花点：块坐标取全局网格，预览与导出一致。
+/// 掩码内按块中心取色填充：块坐标取全局网格，预览与导出一致。
 /// 只作用于掩码内像素，不碰边界外的干净区域。
 void _mosaicMasked(img.Image image, Uint8List mask, int block) {
   final w = image.width;
@@ -359,27 +382,12 @@ void _mosaicMasked(img.Image image, Uint8List mask, int block) {
     for (var bx = 0; bx < w; bx += block) {
       final ex = math.min(bx + block - 1, w - 1);
       final ey = math.min(by + block - 1, h - 1);
-      final g = snowGray(bx ~/ block, by ~/ block);
-      final color = img.ColorRgba8(g, g, g, 255);
+      final color = _blockCenterColor(image, bx, by, ex, ey);
       for (var y = by; y <= ey; y++) {
         for (var x = bx; x <= ex; x++) {
           if (mask[y * w + x] == 1) image.setPixel(x, y, color);
         }
       }
-    }
-  }
-}
-
-/// 掩码内做高斯模糊：整图模糊一次，再把掩码内的像素换回原图。
-/// 半径取笔刷半径（涂抹通常要足够糊才能盖住文字），并随半径增大而增强。
-void _blurMasked(img.Image image, Uint8List mask, int brushRadius) {
-  final radius = (brushRadius * 1.5).round().clamp(1, 40);
-  final blurred = img.gaussianBlur(image, radius: radius);
-  final w = image.width;
-  final h = image.height;
-  for (var y = 0; y < h; y++) {
-    for (var x = 0; x < w; x++) {
-      if (mask[y * w + x] == 1) image.setPixel(x, y, blurred.getPixel(x, y));
     }
   }
 }

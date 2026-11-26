@@ -59,11 +59,6 @@ int _changedPixels(img.Image a, img.Image b) {
   return n;
 }
 
-void _expectSnowGray(num g) {
-  expect(g, greaterThanOrEqualTo(48));
-  expect(g, lessThanOrEqualTo(208));
-}
-
 void main() {
   group('标注合成', () {
     test('空标注返回同一对象', () {
@@ -142,17 +137,17 @@ void main() {
         final isBrush = type == AnnotationType.brush;
         final a = Annotation(
           type: type,
-          // 马赛克需跨越黑/白边界才有可见变化；其余类型任意框
-          x1: isMosaic ? 50 : 10,
-          y1: isMosaic ? 50 : 10,
-          x2: isMosaic ? 75 : 50,
-          y2: isMosaic ? 75 : 50,
+          // 马赛克块中心落在白区、块体覆盖黑区，取色后才能看到变化
+          x1: isMosaic ? 56 : 10,
+          y1: isMosaic ? 56 : 10,
+          x2: isMosaic ? 70 : 50,
+          y2: isMosaic ? 70 : 50,
           text: 'AB',
           colorArgb: 0xFFFFFF00,
           // 涂抹：一条跨黑/白边界的轨迹；块 16 使统计块跨过 x=60/y=60
           points: isBrush ? const [50, 50, 70, 50, 70, 70, 50, 70] : const [],
           brushRadius: 8,
-          mosaicBlock: isBrush ? 16 : 12,
+          mosaicBlock: isBrush ? 16 : 8,
         );
         final out = applyAnnotations(src, [a]);
         expect(_changedPixels(src, out), greaterThan(0), reason: '$type 应改变像素');
@@ -168,43 +163,43 @@ void main() {
       expect(src.getPixel(30, 30).r, before);
     });
 
-    test('矩形马赛克用固定雪花点盖住区域，不依赖底图颜色', () {
+    test('矩形马赛克按块中心取色，块内统一、相邻块跳变', () {
       final src = _canvas();
-      expect(src.getPixel(80, 80).r, 255); // 原为白区
       final out = applyAnnotations(src, const [
+        // 块 (56,56)~(63,63) 中心 (59,59) 在黑区 → 整块黑
         Annotation(
           type: AnnotationType.mosaic,
-          x1: 50,
-          y1: 50,
-          x2: 70,
-          y2: 70,
-          mosaicBlock: 40,
+          x1: 56,
+          y1: 56,
+          x2: 63,
+          y2: 63,
+          mosaicBlock: 8,
+        ),
+        // 块 (64,64)~(71,71) 中心 (67,67) 在白区 → 整块白
+        Annotation(
+          type: AnnotationType.mosaic,
+          x1: 64,
+          y1: 64,
+          x2: 71,
+          y2: 71,
+          mosaicBlock: 8,
         ),
       ]);
-      // 雪花灰度固定落在 48~208，与底图黑白都不同
-      final g = out.getPixel(65, 65).r;
-      _expectSnowGray(g);
-      expect(g, lessThan(255));
-      expect(g, greaterThan(0));
-    });
-
-    test('雪花点确定性：同块同色、块间有变化', () {
-      expect(snowGray(3, 5), snowGray(3, 5), reason: '同一块坐标必须同色');
-      final colors = {
-        for (var bx = 0; bx < 8; bx++)
-          for (var by = 0; by < 8; by++) snowGray(bx, by),
-      };
-      expect(colors.length, greaterThan(1), reason: '不同块应有不同雪花灰度');
-      for (final g in colors) {
-        _expectSnowGray(g);
+      expect(out.getPixel(56, 56).r, 0);
+      for (final p in [(56, 56), (58, 60), (63, 63)]) {
+        expect(out.getPixel(p.$1, p.$2).r, 0, reason: '块内应同色（中心取色）');
       }
+      expect(out.getPixel(64, 64).r, 255, reason: '相邻块取不同底图像素，形成格子');
+      expect(src.getPixel(63, 63).r, 255, reason: '入图不能被修改');
     });
 
-    test('同一雪花图案盖在不同底图上，结果像素完全一致', () {
-      final black = img.Image(width: 40, height: 40, numChannels: 4);
-      img.fill(black, color: img.ColorRgba8(0, 0, 0, 255));
-      final white = img.Image(width: 40, height: 40, numChannels: 4);
-      img.fill(white, color: img.ColorRgba8(255, 255, 255, 255));
+    test('不同底图取到不同马赛克颜色', () {
+      img.Image build(int gray) {
+        final image = img.Image(width: 40, height: 40, numChannels: 4);
+        img.fill(image, color: img.ColorRgba8(gray, gray, gray, 255));
+        return image;
+      }
+
       const a = Annotation(
         type: AnnotationType.mosaic,
         x1: 4,
@@ -213,13 +208,38 @@ void main() {
         y2: 36,
         mosaicBlock: 8,
       );
-      final outBlack = applyAnnotations(black, [a]);
-      final outWhite = applyAnnotations(white, [a]);
-      // 打码区完全被雪花覆盖，与底图无关
-      expect(outBlack.getPixel(20, 20).r, outWhite.getPixel(20, 20).r);
-      // 区外保持各自底图
-      expect(outBlack.getPixel(1, 1).r, 0);
+      final outBlack = applyAnnotations(build(0), [a]);
+      final outWhite = applyAnnotations(build(255), [a]);
+      expect(outBlack.getPixel(20, 20).r, 0);
+      expect(outWhite.getPixel(20, 20).r, 255);
+      expect(outBlack.getPixel(1, 1).r, 0, reason: '区外保持底图');
       expect(outWhite.getPixel(1, 1).r, 255);
+    });
+
+    test('标注坐标钳制在图片内，涂抹轨迹逐点钳制', () {
+      const shape0 = Annotation(
+        type: AnnotationType.rectangle,
+        x1: 90,
+        y1: 90,
+        x2: 120,
+        y2: 120,
+      );
+      final shape = shape0.clampToBounds(100, 100);
+      expect(shape.x1, 70);
+      expect(shape.x2, 100);
+      expect(shape.y1, 70);
+      expect(shape.y2, 100);
+
+      const brush0 = Annotation(
+        type: AnnotationType.brush,
+        x1: 98,
+        y1: 98,
+        x2: 120,
+        y2: 120,
+        points: [98, 98, 120, 120],
+      );
+      final brush = brush0.clampToBounds(100, 100);
+      expect(brush.points, [98, 98, 99, 99]);
     });
   });
   group('标注坐标变换（裁剪+缩放后合成）', () {
@@ -346,20 +366,13 @@ void main() {
       mosaicBlock: 16,
     );
 
-    test('马赛克模式改变轨迹覆盖处的像素，覆盖处变雪花灰度', () {
+    test('涂抹马赛克按块中心取色，跨边界相邻块跳变', () {
       final src = _canvas();
       final out = applyAnnotations(src, [stroke]);
-      // (60,70) 被雪花点覆盖，灰度落在固定范围 48~208
-      final pixel = out.getPixel(60, 70).r;
-      _expectSnowGray(pixel);
-      expect(_changedPixels(src, out), greaterThan(0));
-    });
-
-    test('模糊模式同样改变覆盖处像素', () {
-      final src = _canvas();
-      final out = applyAnnotations(src, [
-        stroke.copyWith(brushMode: BrushMode.blur),
-      ]);
+      // (60,70) 落在块 (48,64)~(63,79)，中心 (56,72) 在黑区 → 黑块
+      expect(out.getPixel(60, 70).r, 0);
+      // (70,70) 落在块 (64,64)~(79,79)，中心 (72,72) 在白区 → 白块
+      expect(out.getPixel(70, 70).r, 255);
       expect(_changedPixels(src, out), greaterThan(0));
     });
 
@@ -411,5 +424,16 @@ void main() {
       reason: '预览文字纵向下移量应与点阵字形的 yOffset 一致',
     );
     expect(CjkText.maxYOffset(text, 48), 16, reason: '字号翻倍时偏移同比放大');
+    // 点阵字形在框内上下留白相等：框高 31、字形高 25、yOffset 8 → 起点 -5
+    expect(CjkText.centeredYOffset(text, size), -5);
+  });
+
+  test('文字度量不再卡在 200，高分辨率图可继续放大', () {
+    const text = '标注';
+    final w600 = CjkText.measureWidth(text, 600);
+    final w1200 = CjkText.measureWidth(text, 1200);
+    expect(w600, greaterThan(200), reason: '字号 600 的框宽应超过旧上限');
+    expect(w1200, closeTo(w600 * 2, 2), reason: '框宽随字号线性放大');
+    expect(CjkText.maxYOffset(text, 1200), greaterThan(16));
   });
 }
